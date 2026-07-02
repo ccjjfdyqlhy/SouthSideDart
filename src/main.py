@@ -5,14 +5,15 @@ import sys
 import os
 import traceback
 from pathlib import Path
-
-from views.home_page import HomePage
-from views.library_page import LibraryPage
+import atexit
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'views'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'services'))
 sys.path.append(os.path.dirname(__file__))
+
+from views.home_page import HomePage
+from views.library_page import LibraryPage
 
 from core.lyrics import LRCLyricParser, YRCLyricParser
 from views.dependences_window import DependencesWindow
@@ -34,7 +35,7 @@ from qfluentwidgets import setTheme, Theme
 import shiboken6
 
 from core.config import loadConfig, saveConfig, Config
-from core.favorites import favorites_manager
+from core.favorites import favorites_manager, saveFavorites
 from core.icons import refreshBoundIcons
 from core.llm import LLM
 from core.audio_player import AudioPlayer
@@ -51,7 +52,7 @@ from views.search_page import SearchPage
 from views.playing_page import PlayingPage
 from views.desktop_lyrics import DesktopLyricsPage
 from views.favorites_page import FavoritesPage
-from views.main_window import MainWindow
+from views.main_window import LLM_WINDOW_WIDTH_DELTA, MainWindow
 from views.error_popup import ErrorPopupWindow
 from core.debugging import Debugging
 from services.update import startUpdateCheck
@@ -62,6 +63,34 @@ hijackStreams()
 
 _logger = logging.getLogger('main')
 
+def atExitListener():
+    logging.info('exiting by listener')
+
+    playing_manager = ctx.playing_manager
+    if playing_manager is not None:
+        playing_manager.shutdownWorkers()
+    ctx.ws_server.stop(shutdown_json_sender=True)
+
+    cfg.last_playlist = ctx.playing_manager.playlist.copy()
+    cfg.last_playing_index = ctx.playing_manager.current_index
+    cfg.last_playing_time = ctx.player.getPosition()
+    ctx.player.shutdown()
+
+    cfg.window_x = ctx.main_window.x()
+    cfg.window_y = ctx.main_window.y()
+    cfg.window_width = ctx.main_window.width() - (
+        LLM_WINDOW_WIDTH_DELTA if ctx.main_window.llm_viewer_panel.expanded else 0
+    )
+    cfg.window_height = ctx.main_window.height()
+    cfg.window_maximized = ctx.main_window.isMaximized()
+    cfg.llm_viewer_expanded = ctx.main_window.llm_viewer_panel.expanded
+
+    saveConfig()
+    saveFavorites()
+
+    ctx.app.quit()
+
+atexit.register(atExitListener)
 
 def patchedExceptHook(
     exc_type: type[BaseException],
@@ -127,10 +156,7 @@ def patchedExceptHook(
     inf.append(f'Raised {exc_type.__name__}({exc_value})')
 
     if exc_type is KeyboardInterrupt:
-        _logger.info('quit by user')
-        if mwindow:
-            mwindow.close()
-        app.quit()
+        _logger.info('quit by KeyboardInterrupt')
         sys.exit()
 
     txt = '\n'.join(inf)
@@ -374,7 +400,6 @@ if __name__ == '__main__':
     ctx.ws_server = ws_server
     ctx.ws_handler = ws_handler
     ctx.harmony_font_family = harmony_font_family
-    ctx.favs = favorites_manager.folders
     ctx.lock = lock
     ctx.launch_window = launchwindow
     ctx.llm = LLM()

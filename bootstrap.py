@@ -193,11 +193,14 @@ class BootstrapWindow(QWidget):
         self.status_table = QTableWidget()
         self.status_table.setColumnCount(2)
         self.status_table.setHorizontalHeaderLabels(['Package', 'Status'])
+        self.status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.status_table.setRowCount(len(getRequirements()))
+        self.package_rows = {}  # Map package name to row index
         for i, requirement in enumerate(getRequirements()):
             self.status_table.setItem(i, 0, QTableWidgetItem(requirement.name))
             item = QTableWidgetItem('Waiting')
             self.status_table.setItem(i, 1, item)
+            self.package_rows[normalizePackageName(requirement.name)] = i
         self._layout.addWidget(self.status_table)
         threading.Thread(
             target=self.installRequirements, args=(mirror_name, mirror_url, latency)
@@ -271,16 +274,43 @@ class BootstrapWindow(QWidget):
             return popen.returncode
         for line in popen.stdout:
             c = line.strip()
-            _logger.debug(line.strip())
+            _logger.debug(c)
             if 'Collecting' in c:
-                package = c.split('Collecting ')[1].split(' ')[0]
-                self.updateStatus(package, 'Collecting')
+                # Extract package name from "Collecting package_name" or "Collecting package_name (version)"
+                match = re.search(r'Collecting\s+([a-zA-Z0-9_\-\.]+)', c)
+                if match:
+                    package = match.group(1)
+                    self.ensurePackageInTable(package)
+                    self.updateStatus(package, 'Collecting')
             elif 'Downloading' in c:
-                package = c.split('Downloading ')[1].split(' ')[0]
-                self.updateStatus(package, 'Downloading')
+                # Extract package name from "Downloading package_name-version..."
+                match = re.search(r'Downloading\s+([a-zA-Z0-9_\-]+)', c)
+                if match:
+                    package = match.group(1)
+                    self.ensurePackageInTable(package)
+                    self.updateStatus(package, 'Downloading')
             elif 'Using cached' in c:
-                package = c.split('Using cached ')[1].split(' ')[0]
-                self.updateStatus(package, 'Installed')
+                # Extract package name from "Using cached package_name-version..."
+                match = re.search(r'Using cached\s+([a-zA-Z0-9_\-]+)', c)
+                if match:
+                    package = match.group(1)
+                    self.ensurePackageInTable(package)
+                    self.updateStatus(package, 'Cached')
+            elif 'Installing collected packages:' in c:
+                # Extract all package names after "Installing collected packages:"
+                packages_str = c.split('Installing collected packages:')[1]
+                packages = [p.strip() for p in packages_str.split(',') if p.strip()]
+                for package in packages:
+                    self.ensurePackageInTable(package)
+                    self.updateStatus(package, 'Installing')
+            elif 'Successfully installed' in c:
+                # Extract all package names after "Successfully installed"
+                packages_str = c.split('Successfully installed')[1]
+                # Parse "package-version package2-version..." format
+                matches = re.findall(r'([a-zA-Z0-9_\-]+)-[\d\.]+', packages_str)
+                for package in matches:
+                    self.ensurePackageInTable(package)
+                    self.updateStatus(package, 'Installed')
         popen.wait()
         return popen.returncode
 
@@ -298,12 +328,30 @@ class BootstrapWindow(QWidget):
         popen.wait()
         return popen.returncode
 
+    def ensurePackageInTable(self, package_name: str):
+        """Ensure a package exists in the table, adding it if necessary."""
+        normalized = normalizePackageName(package_name)
+        if normalized in self.package_rows:
+            return
+
+        def _add():
+            row = self.status_table.rowCount()
+            self.status_table.setRowCount(row + 1)
+            self.status_table.setItem(row, 0, QTableWidgetItem(package_name))
+            self.status_table.setItem(row, 1, QTableWidgetItem('Waiting'))
+            self.package_rows[normalized] = row
+            _logger.debug(f'Added dependency package to table: {package_name}')
+
+        self.task.emit(_add)
+
     def updateStatus(
         self,
         package_name: str,
         status: Literal[
             'Collecting',
             'Downloading',
+            'Installing',
+            'Cached',
             'Installed',
             'Waiting',
             'Uninstalling',
@@ -324,40 +372,38 @@ class BootstrapWindow(QWidget):
 
         def resetColor(item):
             def _set():
-                item.setForeground(Qt.GlobalColor.gray)
+                item.setForeground(Qt.GlobalColor.lightGray)
 
             self.task.emit(_set)
 
-        for line in range(self.status_table.rowCount()):
-            _1item = self.status_table.item(line, 0)
-            _2item = self.status_table.item(line, 1)
-            if _1item is None or _2item is None:
-                continue
+        normalized = normalizePackageName(package_name)
+        if normalized not in self.package_rows:
+            return
 
-            if status in [
-                'Collecting',
-                'Downloading',
-                'Installed',
-            ] and _2item.text() in ['Downloading', 'Collecting']:
-                text(_2item, 'Installed')
-                foreground(_2item, '#00FF00')
+        row = self.package_rows[normalized]
+        _1item = self.status_table.item(row, 0)
+        _2item = self.status_table.item(row, 1)
+        if _1item is None or _2item is None:
+            return
 
-            if _1item.text().upper().replace('-', '_') in package_name.upper().replace(
-                '-', '_'
-            ):
-                text(_2item, status)
-                if status == 'Installed':
-                    foreground(_2item, '#00FF00')
-                elif status == 'Collecting':
-                    foreground(_2item, '#FFFF00')
-                elif status == 'Downloading':
-                    foreground(_2item, '#00FFFF')
-                elif status == 'Uninstalling':
-                    foreground(_2item, '#FF0000')
-                elif status == 'Uninstalled':
-                    foreground(_2item, '#D400FF')
-                elif status == 'Waiting':
-                    resetColor(_2item)
+        text(_2item, status)
+        # Dark mode friendly colors
+        if status == 'Installed':
+            foreground(_2item, '#4CAF50')  # Green
+        elif status == 'Collecting':
+            foreground(_2item, '#FFC107')  # Amber
+        elif status == 'Downloading':
+            foreground(_2item, '#2196F3')  # Blue
+        elif status == 'Installing':
+            foreground(_2item, '#03A9F4')  # Light Blue
+        elif status == 'Cached':
+            foreground(_2item, '#8BC34A')  # Light Green
+        elif status == 'Uninstalling':
+            foreground(_2item, '#F44336')  # Red
+        elif status == 'Uninstalled':
+            foreground(_2item, '#9C27B0')  # Purple
+        elif status == 'Waiting':
+            resetColor(_2item)
 
     def testLatency(self, mirror_name: str, mirror_url: str):
         _logger.debug('testing latency of %s: %s', mirror_name, mirror_url)

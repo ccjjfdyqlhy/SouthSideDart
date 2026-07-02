@@ -14,6 +14,28 @@ _logger = logging.getLogger(__name__)
 
 cfg_cache: dict[str, Any] = {}
 
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.json')
+LEGACY_PICKLE_CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.pkl')
+SECRET_PREFIX = 'win32crypt:'
+
+def _configToJsonObject() -> dict[str, Any]:
+    data = _instance.__dict__.copy()
+    data['last_playlist'] = [
+        song.toObject()
+        for song in (_instance.last_playlist or [])
+        if isinstance(song, SongStorable)
+    ]
+    data.pop('last_playing_song', None)
+    return data
+
+def saveConfig() -> None:
+    if _instance is None:
+        return
+    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+        json.dump(_configToJsonObject(), f, ensure_ascii=False, indent=2)
+
+_instance: Config = cast('Config', None)
 
 @dataclass
 class Config:
@@ -99,17 +121,13 @@ class Config:
     def instance() -> 'Config':
         global _instance
         return _instance
+    
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        saveConfig()
 
-
-_instance: Config = cast(Config, None)
 Config()
 cfg = Config.instance()
-
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.json')
-LEGACY_PICKLE_CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.pkl')
-SECRET_PREFIX = 'win32crypt:'
-
 
 def encryptSecret(value: str) -> str:
     if not value:
@@ -143,7 +161,7 @@ def decryptSecret(value: str) -> str:
         return ''
 
 
-def _song_from_object(data: Any) -> SongStorable | None:
+def _songFromObject(data: Any) -> SongStorable | None:
     if not isinstance(data, dict):
         return None
     try:
@@ -153,18 +171,7 @@ def _song_from_object(data: Any) -> SongStorable | None:
         return None
 
 
-def _config_to_json_object() -> dict[str, Any]:
-    data = _instance.__dict__.copy()
-    data['last_playlist'] = [
-        song.toObject()
-        for song in (_instance.last_playlist or [])
-        if isinstance(song, SongStorable)
-    ]
-    data.pop('last_playing_song', None)
-    return data
-
-
-def _apply_config_json_object(data: dict[str, Any]) -> None:
+def _applyConfigJsonObject(data: dict[str, Any]) -> None:
     if data.get('language') not in ('en_US', 'zh_CN'):
         data.pop('language', None)
 
@@ -181,12 +188,12 @@ def _apply_config_json_object(data: dict[str, Any]) -> None:
         data['last_playlist'] = [
             song
             for song in (
-                _song_from_object(item) for item in data.get('last_playlist', [])
+                _songFromObject(item) for item in data.get('last_playlist', [])
             )
             if song is not None
         ]
     elif 'last_playing_song' in data:
-        song = _song_from_object(data.get('last_playing_song'))
+        song = _songFromObject(data.get('last_playing_song'))
         data['last_playlist'] = [song] if song else []
         data['last_playing_index'] = 0 if song else -1
     data.pop('last_playing_song', None)
@@ -195,17 +202,17 @@ def _apply_config_json_object(data: dict[str, Any]) -> None:
     if isinstance(providers, list):
         data['llm_providers'] = [
             provider
-            for provider in (_normalize_llm_provider(item) for item in providers)
+            for provider in (_normalizeLLMProvider(item) for item in providers)
             if provider is not None
         ]
     else:
         data['llm_providers'] = []
 
     _instance.__dict__.update(data)
-    _migrate_legacy_llm_config()
+    _migrateLegacyLLMConfig()
 
 
-def _normalize_llm_provider(data: Any) -> dict[str, Any] | None:
+def _normalizeLLMProvider(data: Any) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     name = str(data.get('name', '')).strip()
@@ -240,7 +247,7 @@ def _normalize_llm_provider(data: Any) -> dict[str, Any] | None:
     }
 
 
-def _migrate_legacy_llm_config() -> None:
+def _migrateLegacyLLMConfig() -> None:
     if _instance.llm_providers:
         return
     if not (
@@ -268,7 +275,7 @@ def _migrate_legacy_llm_config() -> None:
     _instance.llm_current_model = _instance.llm_model
 
 
-def _delete_legacy_pickle_config() -> None:
+def _deleteLegacyPickleConfig() -> None:
     if not os.path.exists(LEGACY_PICKLE_CONFIG_PATH):
         return
     try:
@@ -287,17 +294,10 @@ def loadConfig() -> None:
             data = json.load(f)
 
         if isinstance(data, dict):
-            _apply_config_json_object(data)
+            _applyConfigJsonObject(data)
             _logger.info(f'loaded config {len(_instance.__dict__)=}')
         else:
             _logger.warning('invalid config.json, using defaults')
             saveConfig()
 
-    _delete_legacy_pickle_config()
-
-
-def saveConfig() -> None:
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        json.dump(_config_to_json_object(), f, ensure_ascii=False, indent=2)
-
-        _logger.info('saved config')
+    _deleteLegacyPickleConfig()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 
 from core.app_context import AppContext
@@ -213,16 +214,7 @@ class MainWindow(FluentWindowBase):
         self.titleBar.raise_()
         self.search_input.raise_()
 
-        self.closing = False
         self.connected = False
-
-        self.draw_progress: float = 0
-        self.bar_height: float = 0
-        self.left: int = 5
-        self.right: int = 150
-        self.lmotion: int = 20
-        self.rmotion: int = 20
-        self.last_draw: int = time.perf_counter_ns()
 
         self.setWindowTitle('Southside Music')
 
@@ -284,14 +276,13 @@ class MainWindow(FluentWindowBase):
         self.debug_overlay.raise_()
 
         event_bus.subscribe(REFRESH_RATE_CHANGED, self._onRefreshRateChanged)
-        event_bus.subscribe(REPAINT, self.updateDatas)
         event_bus.subscribe(START_INTER_LOADING, self.onStartInterLoading)
         event_bus.subscribe(STOP_INTER_LOADING, self.onStopInterLoading)
         event_bus.subscribe(STOP_PROGRESS_LOADING, self.onStopProgressLoading)
         event_bus.subscribe(START_PROGRESS_LOADING, self.onStartProgressLoading)
         event_bus.subscribe(UPDATE_LOADING_PROGRESS, self.onUpdateLoadingProgress)
         event_bus.subscribe(ENDING_NO_SOUND, lambda: event_bus.emit(SONG_FINISH))
-        event_bus.subscribe(BACKGROUND_RATIO_CHANGED, self.update)
+        event_bus.subscribe(BACKGROUND_RATIO_CHANGED, self.updateDatas)
         event_bus.subscribe(VIEW_FOLDER, self.onViewFolder)
         event_bus.subscribe(MWINDOW_REFRESH_FOLDERS, self.refreshFolders)
         event_bus.subscribe(LANGUAGE_CHANGED, self.updateLanguage)
@@ -448,47 +439,11 @@ class MainWindow(FluentWindowBase):
 
         self.delta = 1 / self.refresh_rate
 
-    def updateDatas(self, multiple_factor: float = 1.0) -> None:
-        loading = self.loading_progressing or self.loading_tasks > 0
-
-        self.bar_height += (
-            ((5 if loading else 0) - self.bar_height) * multiple_factor * 0.3
-        )
-        self.bar_height = min(4, self.bar_height)
-
-        if loading:
-            self.draw_progress += (
-                (self.loading_progress - self.draw_progress) * multiple_factor * 0.9
-            )
-        else:
-            self.draw_progress = 0
-
-        if self.bar_height > 0:
-            if self.loading_inter:
-                new_right = self.right + int(self.rmotion * multiple_factor)
-                new_left = self.left + int(self.lmotion * multiple_factor * 1.25)
-
-                if new_right > self.width():
-                    self.rmotion = -abs(self.rmotion)
-                elif new_right < 0:
-                    self.rmotion = abs(self.rmotion)
-
-                if new_left > self.width():
-                    self.lmotion = -abs(self.lmotion)
-                elif new_left < 0:
-                    self.lmotion = abs(self.lmotion)
-
-                self.right += int(self.rmotion * multiple_factor)
-                self.left += int(self.lmotion * multiple_factor * 1.25)
-
-                self.right = max(0, min(self.width(), self.right))
-                self.left = max(0, min(self.width(), self.left))
-
-            self.update()
-            return
-
+    def updateDatas(self) -> None:
         if self.ctx.debugging:
             self.debug_overlay.refresh()
+
+        self.update()
 
     def addScheduledTask(self, task, *args, **kwargs) -> None:
         self.ctx.addScheduledTask(task, *args, **kwargs)
@@ -720,39 +675,7 @@ class MainWindow(FluentWindowBase):
 
     def closeEvent(self, e: QCloseEvent):
         e.accept()
-        if self.closing:
-            return
-        self.closing = True
-
-        self.hide()
-        playing_manager = getattr(self.ctx, 'playing_manager', None)
-        if playing_manager is not None:
-            playing_manager.shutdownWorkers()
-        shutdown_player = getattr(self._player, 'shutdown', None)
-        if shutdown_player is not None:
-            shutdown_player()
-        else:
-            self._player.stop()
-
-        self._ws_server.stop(shutdown_json_sender=True)
-
-        cfg.last_playlist = self._dp.playlist.copy()
-        cfg.last_playing_index = self._dp.current_index
-        cfg.last_playing_time = self._player.getPosition()
-
-        cfg.window_x = self.x()
-        cfg.window_y = self.y()
-        cfg.window_width = self.width() - (
-            LLM_WINDOW_WIDTH_DELTA if self.llm_viewer_panel.expanded else 0
-        )
-        cfg.window_height = self.height()
-        cfg.window_maximized = self.isMaximized()
-        cfg.llm_viewer_expanded = self.llm_viewer_panel.expanded
-
-        saveConfig()
-        saveFavorites()
-
-        self._app.quit()
+        sys.exit(0)
 
     def resizeEvent(self, e):
         self.titleBar.move(20, 0)
@@ -855,28 +778,3 @@ class MainWindow(FluentWindowBase):
             )
         )
         painter.drawRect(self.rect())
-
-        loading = self.loading_progressing or self.loading_tasks > 0
-
-        if loading or self.bar_height > 0.1:
-            painter.setBrush(
-                mixColor(
-                    self.song_theme,
-                    QColor(255, 255, 255) if theme.isDark() else QColor(0, 0, 0),
-                    cfg.background_ratio,
-                )
-            )
-            if self.loading_inter:
-                painter.drawRect(
-                    self.left, 0, self.right - self.left, int(self.bar_height)
-                )
-            else:
-                painter.drawRect(
-                    0,
-                    0,
-                    toQtInt(self.width() * self.draw_progress),
-                    toQtInt(self.bar_height),
-                )
-            painter.setPen(QColor(255, 255, 255) if theme.isDark() else QColor(0, 0, 0))
-
-        painter.end()

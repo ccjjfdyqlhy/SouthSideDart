@@ -223,6 +223,7 @@ class PlayingManager:
         self.ctx.addScheduledTask(func, *args)  # type: ignore
 
     def shutdownWorkers(self) -> None:
+        self._logger.info('shutting down workers')
         self._play_seq += 1
         self._preload_download_seq += 1
         self._pending_play_selection = None

@@ -725,6 +725,33 @@ def _install_embed_requirements() -> None:
         except subprocess.CalledProcessError:
             raise SetupError('Failed to install pip in embedded Python.')
 
+    # Install setuptools to prevent package completion errors
+    print('  Installing setuptools...')
+    for attempt in range(1, 4):
+        try:
+            run(
+                [
+                    embed_exe,
+                    '-m',
+                    'pip',
+                    'install',
+                    '--no-input',
+                    '--no-cache-dir',
+                    'setuptools',
+                ]
+            )
+            break
+        except subprocess.CalledProcessError:
+            if attempt < 3:
+                wait = 2**attempt
+                print(
+                    f'  setuptools install failed (attempt {attempt}/3). '
+                    f'Retrying in {wait}s...'
+                )
+                time.sleep(wait)
+            else:
+                print('  [WARNING] Failed to install setuptools after 3 attempts.')
+
     # Install requirements
     print('\n[5/6] Installing requirements into embedded Python...')
     _validate_requirements_file(REQUIREMENTS)

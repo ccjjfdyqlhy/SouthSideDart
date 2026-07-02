@@ -1140,6 +1140,7 @@ class AudioPlayer(QObject):
             self.fft_thread.join(timeout=timeout)
 
     def shutdown(self) -> None:
+        self._logger.info('shutting down')
         self._telemetry_timer.stop()
         self.stop()
         self.stop_fft_thread()
