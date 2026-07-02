@@ -159,9 +159,13 @@ class Session(requests.Session):
 
     @property
     def bindings(self):
-        if not self.login_info.get('content', {}).get('bindings'):
+        content = self.login_info.get('content')
+        if not isinstance(content, dict):
             return []
-        return self.login_info['content']['bindings']
+        bindings = content.get('bindings')
+        if not isinstance(bindings, list):
+            return []
+        return bindings
 
     def request(self, method: str, url: str, *a, **k) -> requests.Response:  # type: ignore[override]
         if url[:4] != 'http':
