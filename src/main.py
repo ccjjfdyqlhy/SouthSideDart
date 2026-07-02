@@ -28,7 +28,7 @@ import uuid
 from types import TracebackType
 import glob
 
-from services.events.events_services import EventsServices
+from services.services import EventsServices
 
 import imports as _ims
 from qfluentwidgets import setTheme, Theme
@@ -453,6 +453,8 @@ if __name__ == '__main__':
         ctx.home_page = hp
         ctx.library_page = lrp
 
+        ctx.process_pids['main'] = os.getpid()
+        
         launchwindow.push('Initializing main window...')
         mwindow = MainWindow(ctx)
         ctx.main_window = mwindow

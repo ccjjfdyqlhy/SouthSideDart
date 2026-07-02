@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 
@@ -38,7 +39,7 @@ from views.folder_card import CloudFolderCard, LocalFolderCard
 class EventsServices(QObject):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__()
-        self._ctx = ctx
+        self.ctx = ctx
         self._app = ctx.app
 
         self._start_session_refresher()
@@ -60,6 +61,10 @@ class EventsServices(QObject):
 
         threading.Thread(target=_startListen, daemon=True).start()
 
+        self.pids_collect_timer = QTimer(self)
+        self.pids_collect_timer.timeout.connect(self.collectPids)
+        self.pids_collect_timer.start(1000)
+
         event_bus.subscribe(
             SONG_CHANGED, lambda s: event_bus.emit(BACKGROUND_RATIO_CHANGED)
         )
@@ -69,6 +74,25 @@ class EventsServices(QObject):
         event_bus.subscribe(CLOUD_REMOVE_FOLDER, self.cloudRemoveFolder)
         event_bus.subscribe(CLOUD_RENAME_FOLDER, self.cloudRenameFolder)
         event_bus.subscribe(CLOUD_ADD_TO_LOCAL, self.cloudAddToLocal)
+
+    def updateMemoryUsage(self):
+        if not self.ctx.debugging:
+            return
+
+    def collectPids(self):
+        if not self.ctx.debugging:
+            return
+
+        result: dict[str, int] = {}
+        c = self.ctx
+        ws_handler = c.ws_handler._ft_json_sender._process
+        playing_manager = c.playing_manager._ft_worker._process
+        result['main'] = os.getpid()
+        if ws_handler:
+            result['ws json sender'] = ws_handler.pid
+        if playing_manager:
+            result['ffmpeg decode'] = playing_manager.pid
+        self.ctx.process_pids = result.copy()
 
     def cloudAddToLocal(self, card: CloudFolderCard):
         folder_name = card.folder.folder_name
@@ -81,7 +105,7 @@ class EventsServices(QObject):
 
         def _finished():
             event_bus.emit(MWINDOW_REFRESH_FOLDERS)
-            self._ctx.addScheduledTask(
+            self.ctx.addScheduledTask(
                 lambda: InfoBar.success(
                     tr('events_services.imported_successfully'),
                     tr(
@@ -89,7 +113,7 @@ class EventsServices(QObject):
                         folder_name=folder_name,
                     ),
                     duration=5000,
-                    parent=self._ctx.main_window,
+                    parent=self.ctx.main_window,
                 )
             )
 
@@ -106,7 +130,7 @@ class EventsServices(QObject):
 
         def _finished():
             event_bus.emit(MWINDOW_REFRESH_FOLDERS)
-            self._ctx.addScheduledTask(
+            self.ctx.addScheduledTask(
                 lambda: InfoBar.success(
                     tr('events_services.imported_successfully'),
                     tr(
@@ -114,7 +138,7 @@ class EventsServices(QObject):
                         folder_name=folder_name,
                     ),
                     duration=5000,
-                    parent=self._ctx.main_window,
+                    parent=self.ctx.main_window,
                 )
             )
 
@@ -127,7 +151,7 @@ class EventsServices(QObject):
                 'events_services.are_you_sure_to_remove_folder',
                 folder_name=folder_name,
             ),
-            self._ctx.main_window,
+            self.ctx.main_window,
         )
         dialog.yesButton.setText(tr('events_services.remove'))
         dialog.cancelButton.setText(tr('events_services.cancel'))
@@ -150,7 +174,7 @@ class EventsServices(QObject):
             'events_services.rename_folder',
             'events_services.enter_new_name_of_your_folder',
             'events_services.my_folder',
-            self._ctx.main_window,
+            self.ctx.main_window,
         )
         if not new_name:
             return
@@ -167,7 +191,7 @@ class EventsServices(QObject):
 
         def _finished():
             event_bus.emit(MWINDOW_REFRESH_FOLDERS)
-            self._ctx.addScheduledTask(
+            self.ctx.addScheduledTask(
                 lambda: InfoBar.success(
                     tr('events_services.renamed_successfully'),
                     tr(
@@ -176,7 +200,7 @@ class EventsServices(QObject):
                         new_name=new_name,
                     ),
                     duration=5000,
-                    parent=self._ctx.main_window,
+                    parent=self.ctx.main_window,
                 )
             )
 
@@ -193,7 +217,7 @@ class EventsServices(QObject):
             'events_services.rename_folder',
             'events_services.enter_new_name_of_your_folder',
             'events_services.my_folder',
-            self._ctx.main_window,
+            self.ctx.main_window,
         )
         if new:
             favorites_manager.renameFolder(card.folder.folder_name, new)

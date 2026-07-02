@@ -5,6 +5,8 @@ import logging
 import math
 import time
 
+import tqdm
+
 from core.app_context import AppContext
 
 from core.downloader import asyncTask
@@ -96,11 +98,11 @@ class LyricsViewer(QWidget):
 
         self.setMouseTracking(True)
 
-        self._lyrics_ready = True
         self._translation_lookup_key: tuple[int, int] | None = None
         self._translation_by_time: dict[int, str] = {}
         self._shifted_translation_by_time: dict[int, str] = {}
         self._translation_timing_shifted = False
+        self._text_width_map: dict[str, float] = {}
 
         self.refresh_rate = max(60, ctx.app.primaryScreen().refreshRate() / 2)
         self._logger.info(f'{self.refresh_rate=}')
@@ -130,33 +132,22 @@ class LyricsViewer(QWidget):
         event_bus.subscribe(PLAY_STORABLE, lambda _: self.prewarmFontMetrics())
 
     def prewarmFontMetrics(self):
-        self._lyrics_ready = False
+        self._text_width_map.clear()
         asyncTask(self._doPrewarm, (), self)
 
     def _doPrewarm(self):
+        time.sleep(2)
         all_texts: set[str] = set()
-        for mgr in (self._mgr, self._transmgr, self._ymgr):
-            for line in mgr.parsed:
-                content = line.content.strip()
-                if content:
-                    all_texts.add(content)
-                if isinstance(line, YRCLyricInfo):
-                    for ch in line.chars:
-                        c = ch.char.strip()
-                        if c:
-                            all_texts.add(c)
-        self.ctx.addScheduledTask(self._prewarmFontMetricsOnMainThread, all_texts)
-
-    def _prewarmFontMetricsOnMainThread(self, all_texts: set[str]) -> None:
-        if not all_texts:
-            self._lyrics_ready = True
-            return
-        event_bus.emit(START_PROGRESS_LOADING)
-        for i, text in enumerate(all_texts):
-            self.metri.horizontalAdvance(text)
-            event_bus.emit(UPDATE_LOADING_PROGRESS, i / len(all_texts))
-        event_bus.emit(STOP_PROGRESS_LOADING)
-        self._lyrics_ready = True
+        for line in self._mgr.parsed:
+            all_texts.add(line.content)
+        for line in self._transmgr.parsed:
+            all_texts.add(line.content)
+        for line in self._ymgr.parsed:
+            all_texts.add(line.content)
+            for char in line.chars:
+                all_texts.add(char.char)
+        for text in all_texts:
+            self._text_width_map[text] = self.metri.horizontalAdvance(text)
 
     def _onRepaintTick(self, multiple_factor: float = 1.0) -> None:
         self.updateDatas(multiple_factor)
@@ -428,7 +419,7 @@ class LyricsViewer(QWidget):
         if not content:
             return 0.0, 0.0
 
-        total_width = max(1.0, self.metri.horizontalAdvance(content))
+        total_width = self._text_width_map.get(content, 1.0)
         if not line.chars:
             if line.duration <= 0:
                 return 0.0, 0.0
@@ -437,7 +428,7 @@ class LyricsViewer(QWidget):
 
         filled_width = 0.0
         for ch in line.chars:
-            text_width = self.metri.horizontalAdvance(ch.char)
+            text_width = self._text_width_map.get(ch.char, 1.0)
             if ch.duration <= 0:
                 progress = 1.0 if position >= ch.start else 0.0
             else:
@@ -456,9 +447,6 @@ class LyricsViewer(QWidget):
     ) -> dict[str, object]:
         if position is None:
             position = self.ctx.playing_manager.getDisplayPosition()
-
-        if not self._lyrics_ready:
-            return {'schema': 'southside_lyric_layout_v1', 'ready': False, 'lines': []}
 
         lines, current_index, use_yrc = self._lyricsForPosition(position)
         if not lines:
@@ -688,8 +676,8 @@ class LyricsViewer(QWidget):
                 painter.drawText(10, toQtInt(y + 15), f'Baseline {toQtInt(y)}')
                 painter.setFont(self.ft)
 
-            if is_current_line and use_yrc and not is_metadata:
-                content = str(item.get('draw_text', ''))
+            content = str(item.get('draw_text', ''))
+            if is_current_line and use_yrc and not is_metadata and content:
                 base_color = self._colorFromPayload(item.get('yrc_base_color', {}))
                 painter.setPen(base_color)
                 painter.drawText(toQtInt(x), toQtInt(y), content)
@@ -708,7 +696,7 @@ class LyricsViewer(QWidget):
                         painter.drawText(
                             _x + 5,
                             clip_y,
-                            f'YRC Clip Progress: {yrc_current_ratio:.2f}',
+                            f'YRC Clip Progress: {yrc_current_ratio:.3f}',
                         )
                         painter.setFont(self.ft)
                     painter.setClipRect(

@@ -6,7 +6,7 @@ from core import theme
 from core.app_context import AppContext
 from core.color import mixColor
 from core.config import cfg
-from core.free_threaded_worker import json_base64_bytes
+from core.free_threaded_worker import jsonBase64Bytes
 from core.icons import bindIcon
 from core.models import SongStorable
 from core.theme import isDark
@@ -371,7 +371,7 @@ class PlayingPage(QWidget):
         self._ws_handler.sendJsonFactory(
             lambda img_bytes=img_bytes, song_name=song_name, position=position, duration=duration, translation_enabled=translation_enabled, use_yrc=use_yrc, artists=artists, is_playing=is_playing: {
                 'option': 'cover',
-                'image': json_base64_bytes(img_bytes),
+                'image': jsonBase64Bytes(img_bytes),
                 'song_name': song_name,
                 'position': position,
                 'duration': duration,

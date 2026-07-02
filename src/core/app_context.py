@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from core.playing_manager import PlayingManager
     from core.ws_server import WebSocketServer, QObjectHandler
     from PySide6.QtWidgets import QApplication
-    from services.events.events_services import EventsServices
+    from services.services import EventsServices
     from views.desktop_lyrics import DesktopLyricsPage
     from views.dependences_window import DependencesWindow
     from views.favorites_page import FavoritesPage
@@ -87,6 +87,7 @@ class AppContext:
         self.llm_cloud_search_offset: int = 0
         self.dependences_available: bool = True
         self.debugging: bool = False
+        self.process_pids: dict[str, int] = {}
 
         self.launch_window: LaunchWindow = cast('LaunchWindow', None)
         self.main_window: MainWindow = cast('MainWindow', None)

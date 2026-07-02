@@ -57,7 +57,7 @@ from core.icons import bindIcon
 from core import theme
 from core.lyrics import LyricInfo, LRCLyricParser, YRCLyricInfo, YRCLyricParser
 from core.audio_player import AudioPlayer
-from core.free_threaded_worker import json_float_array
+from core.free_threaded_worker import jsonFloatArray
 from core.ws_server import QObjectHandler
 from core.config import cfg
 
@@ -500,7 +500,7 @@ class PlayingController(QWidget):
                     self._ws_handler.sendJsonFactory(
                         lambda magnitudes=magnitudes, multiple=multiple: {
                             'option': 'update_fft',
-                            'magnitudes': json_float_array(
+                            'magnitudes': jsonFloatArray(
                                 magnitudes.tobytes(),
                                 str(magnitudes.dtype),
                                 int(magnitudes.size),

@@ -271,7 +271,8 @@ class MainWindow(FluentWindowBase):
 
         self.debug_overlay = DebugOverlay(ctx, self)
         geo = self.rect()
-        geo.setWidth(int(self.width() * 0.25))
+        geo.setWidth(int(self.width() * 0.4))
+        geo.setHeight(int(self.height() - 50))
         self.debug_overlay.setGeometry(geo)
         self.debug_overlay.raise_()
 

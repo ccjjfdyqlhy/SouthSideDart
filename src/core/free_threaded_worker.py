@@ -21,12 +21,12 @@ _MAIN_THREAD_OPS = {'loudness_gain'}
 _ORIGINAL_POPEN = subprocess.Popen
 
 
-def json_base64_bytes(data: bytes) -> dict[str, bytes]:
+def jsonBase64Bytes(data: bytes) -> dict[str, bytes]:
     """Mark bytes for base64 encoding inside the free-threaded worker."""
     return {_B64_BYTES_KEY: data}
 
 
-def json_float_array(
+def jsonFloatArray(
     data: bytes,
     dtype: str,
     count: int,
