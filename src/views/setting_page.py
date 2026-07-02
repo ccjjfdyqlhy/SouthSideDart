@@ -113,7 +113,7 @@ class SectionContainer(QWidget):
 
         self.anim = QPropertyAnimation(self, b'contentHeight')
         self.anim.setDuration(800)
-        self.anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.anim.finished.connect(self._onAnimFinished)
 
         layout.addWidget(self.header)

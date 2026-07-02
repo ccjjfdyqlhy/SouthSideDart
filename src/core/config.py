@@ -35,8 +35,6 @@ def saveConfig() -> None:
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(_configToJsonObject(), f, ensure_ascii=False, indent=2)
 
-_instance: Config = cast('Config', None)
-
 @dataclass
 class Config:
     language: Literal['en_US', 'zh_CN'] = 'en_US'
@@ -121,11 +119,8 @@ class Config:
     def instance() -> 'Config':
         global _instance
         return _instance
-    
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        saveConfig()
 
+_instance: Config = cast('Config', None)
 Config()
 cfg = Config.instance()
 

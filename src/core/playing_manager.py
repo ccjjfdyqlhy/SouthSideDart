@@ -385,6 +385,8 @@ class PlayingManager:
         self._shutdownCrossfadePlayer()
         self._clearCrossfadePlaybackLoad()
 
+        event_bus.emit(FINISH_CROSSFADE)
+
     def isSelectionCurrent(self, selection: PlaySelection | None) -> bool:
         if selection is None:
             return False
