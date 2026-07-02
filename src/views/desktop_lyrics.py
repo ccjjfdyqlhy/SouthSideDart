@@ -80,7 +80,7 @@ class DesktopLyricsViewer(LyricsViewer):
     ) -> YRCLyricInfo | LyricInfo | None:
         if position is None:
             position = self.ctx.playing_manager.getDisplayPosition()
-        if self._ymgr.parsed:
+        if self._ymgr.hasYrcTiming():
             line = self._ymgr.getCurrentLyric(position)
             if line.content.strip():
                 self.last_lyric = line
@@ -108,7 +108,7 @@ class DesktopLyricsViewer(LyricsViewer):
     ) -> bool:
         if line is None:
             line = self._currentLyricLine()
-        use_yrc = bool(self._ymgr.parsed)
+        use_yrc = self._ymgr.hasYrcTiming()
         if line and self._translationTextForLine(line, use_yrc):
             return True
         return bool(
@@ -147,7 +147,7 @@ class DesktopLyricsViewer(LyricsViewer):
         self.setFixedHeight(max(1, int(self.height_timer.current_value)))
 
         tar_width = 0
-        if self._ymgr.parsed:
+        if self._ymgr.hasYrcTiming():
             yidx = self._ymgr.getCurrentIndex(position)
             y_line = (
                 self._ymgr.parsed[0]

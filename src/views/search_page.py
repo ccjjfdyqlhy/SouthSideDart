@@ -19,6 +19,7 @@ from views.list_widget import SListWidget
 from core.downloader import asyncTask
 from core.models import SearchCloudFolderInfo, SearchSongInfo
 from core.backend import getBackend
+from core.qt_utils import clearListWidget
 
 from views.song_card import SearchSongCard
 
@@ -141,7 +142,7 @@ class SearchPage(QWidget):
 
         if offset == 0:
             self.curr_offset = 0
-            self.lst.clear()
+            clearListWidget(self.lst)
             self.cards.clear()
             self.img_card_map.clear()
 

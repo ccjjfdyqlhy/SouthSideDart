@@ -235,6 +235,8 @@ class TaskManager(QObject):
             raise e
         finally:
             self.taskFinished.emit()
+            self.task = lambda: None
+            self.args = ()
 
 
 def asyncDownload(
@@ -276,12 +278,15 @@ def asyncTask(
         ctx = getattr(parent, 'ctx', None)
         if ctx is not None:
             ctx.addScheduledTask(_apply_finish)
+            manager.deleteLater()
             return
         add_scheduled = getattr(parent, 'addScheduledTask', None)
         if add_scheduled is not None:
             add_scheduled(_apply_finish)
+            manager.deleteLater()
             return
         _apply_finish()
+        manager.deleteLater()
 
     manager.taskFinished.connect(__finish)
     manager.start()

@@ -365,7 +365,7 @@ class PlayingPage(QWidget):
         position = self.playing_manager.getDisplayPosition()
         duration = self.playing_manager.getDisplayLength()
         translation_enabled = bool(cfg.show_translation)
-        use_yrc = bool(self._ymgr.parsed)
+        use_yrc = self._ymgr.hasYrcTiming()
         artists = _artists_text(self.cur.storable)
         is_playing = self.ctx.player.isPlaying()
         self._ws_handler.sendJsonFactory(

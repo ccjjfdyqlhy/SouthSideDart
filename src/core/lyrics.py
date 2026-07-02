@@ -4,8 +4,6 @@ import json
 import logging
 import re
 
-from services.events import event_bus, EMIT_DEBUG_INFO
-
 
 @dataclass
 class LyricInfo:
@@ -108,7 +106,7 @@ def _try_parse_yrc_line(line: str) -> YRCLyricInfo | None:
         chars.append(YRCCharInfo(start=ch_start, duration=ch_duration, char=ch_text))
 
     content = ''.join(content_builder)
-    if not content:
+    if not content or not chars:
         return None
     return YRCLyricInfo(
         time=line_start, duration=line_duration, content=content, chars=chars
@@ -120,6 +118,10 @@ class YRCLyricParser:
         self._logger = logging.getLogger(__name__)
         self.cur: str = ''
         self.parsed: list[YRCLyricInfo] = []
+        self._has_yrc_timing = False
+
+    def hasYrcTiming(self) -> bool:
+        return self._has_yrc_timing
 
     def getCurrentLyric(self, time: float) -> YRCLyricInfo:
         return self._getCurrentLyric(time)
@@ -132,8 +134,8 @@ class YRCLyricParser:
         if self.parsed[0].time > time:
             return YRCLyricInfo(time=0, duration=0, content='', chars=[])
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 return self.parsed[i - 1]
 
         return self.parsed[-1]
@@ -149,8 +151,8 @@ class YRCLyricParser:
         if self.parsed[0].time > time:
             return YRCLyricInfo(time=0, duration=0, content='', chars=[])
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 target_index = i - 1 + offset_index
                 if target_index < 0 or target_index >= len(self.parsed):
                     return YRCLyricInfo(time=0, duration=0, content='', chars=[])
@@ -169,8 +171,8 @@ class YRCLyricParser:
         if self.parsed[0].time > time:
             return -1
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 return i - 1
 
         return len(self.parsed) - 1
@@ -181,6 +183,7 @@ class YRCLyricParser:
         self._getCurrentLyricIndex.cache_clear()
 
         self.parsed.clear()
+        self._has_yrc_timing = False
 
         if not self.cur:
             return
@@ -209,6 +212,8 @@ class YRCLyricParser:
             info = _try_parse_yrc_line(stripped)
             if info is not None:
                 self.parsed.append(info)
+                if info.chars:
+                    self._has_yrc_timing = True
 
         self.parsed.sort(key=lambda x: x.time)
         self._logger.info(f'parsed {len(self.parsed)} YRC lines')
@@ -233,8 +238,8 @@ class LRCLyricParser:
         if self.parsed[0].time > time:
             return LyricInfo(time=0, content='')
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 return self.parsed[i - 1]
 
         return self.parsed[-1]
@@ -250,8 +255,8 @@ class LRCLyricParser:
         if self.parsed[0].time > time:
             return LyricInfo(time=0, content='')
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 target_index = i - 1 + offset_index
                 if target_index < 0 or target_index >= len(self.parsed):
                     return LyricInfo(time=0, content='')
@@ -270,8 +275,8 @@ class LRCLyricParser:
         if self.parsed[0].time > time:
             return -1
 
-        for i, l in enumerate(self.parsed):
-            if l.time > time:
+        for i, line in enumerate(self.parsed):
+            if line.time > time:
                 return i - 1
 
         return len(self.parsed) - 1

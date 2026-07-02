@@ -131,7 +131,7 @@ class PlayingControllerLyricsViewer(QWidget):
 
     def _onRepaintTick(self, _multiple_factor: float = 1.0) -> None:
         position = self.ctx.playing_manager.getDisplayPosition()
-        if self._ymgr.parsed:
+        if self._ymgr.hasYrcTiming():
             current = self._ymgr.getCurrentLyric(position)
         elif self._mgr.parsed:
             current = self._mgr.getCurrentLyric(position)
@@ -184,7 +184,7 @@ class PlayingControllerLyricsViewer(QWidget):
             'color': color_payload,
             'clips': [],
         }
-        if self._ymgr.parsed and isinstance(current_line, YRCLyricInfo):
+        if self._ymgr.hasYrcTiming() and isinstance(current_line, YRCLyricInfo):
             y_line = current_line
             content = (y_line.content or current_line.content).strip()
             clips: list[dict[str, float]] = []
@@ -613,7 +613,7 @@ class PlayingController(QWidget):
     def _lyricWindowPayload(
         self, position: float
     ) -> tuple[list[dict[str, object]], LyricInfo | YRCLyricInfo | None, int, bool]:
-        use_yrc = bool(self._ymgr.parsed)
+        use_yrc = self._ymgr.hasYrcTiming()
         lines: list[LyricInfo | YRCLyricInfo]
         if use_yrc:
             lines = self._ymgr.parsed  # type: ignore

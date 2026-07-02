@@ -441,9 +441,6 @@ class MainWindow(FluentWindowBase):
         self.delta = 1 / self.refresh_rate
 
     def updateDatas(self) -> None:
-        if self.ctx.debugging:
-            self.debug_overlay.refresh()
-
         self.update()
 
     def addScheduledTask(self, task, *args, **kwargs) -> None:
@@ -759,7 +756,7 @@ class MainWindow(FluentWindowBase):
             event.accept()
         elif event.key() == Qt.Key.Key_F3:
             self.ctx.debugging_obj.toggle()
-            self.debug_overlay.refresh()
+            self.debug_overlay.refresh(raise_overlay=True)
             event.accept()
         else:
             return super().keyPressEvent(event)

@@ -5,8 +5,6 @@ import logging
 import math
 import time
 
-import tqdm
-
 from core.app_context import AppContext
 
 from core.downloader import asyncTask
@@ -41,9 +39,6 @@ from core.smooth import EaseOutTimer
 from core.lyrics import LyricInfo, YRCLyricInfo
 from services.events.events import (
     PLAY_STORABLE,
-    START_PROGRESS_LOADING,
-    STOP_PROGRESS_LOADING,
-    UPDATE_LOADING_PROGRESS,
 )
 
 
@@ -292,7 +287,7 @@ class LyricsViewer(QWidget):
     def _lyricsForPosition(
         self, position: float
     ) -> tuple[list[LyricInfo | YRCLyricInfo], int, bool]:
-        use_yrc = bool(self._ymgr.parsed)
+        use_yrc = self._ymgr.hasYrcTiming()
         if use_yrc:
             return self._ymgr.parsed, self._ymgr.getCurrentIndex(position), use_yrc  # type: ignore
         return self._mgr.parsed, self._mgr.getCurrentIndex(position), use_yrc  # type: ignore
@@ -407,6 +402,13 @@ class LyricsViewer(QWidget):
             else QColor(0, 0, 0, int(alpha * cur))
         )
 
+    def _textWidth(self, text: str) -> float:
+        width = self._text_width_map.get(text)
+        if width is None:
+            width = self.metri.horizontalAdvance(text)
+            self._text_width_map[text] = width
+        return width
+
     def _yrcClipPayload(
         self,
         line: LyricInfo | YRCLyricInfo,
@@ -419,7 +421,9 @@ class LyricsViewer(QWidget):
         if not content:
             return 0.0, 0.0
 
-        total_width = self._text_width_map.get(content, 1.0)
+        total_width = self._textWidth(content)
+        if total_width <= 0:
+            return 0.0, 0.0
         if not line.chars:
             if line.duration <= 0:
                 return 0.0, 0.0
@@ -428,7 +432,7 @@ class LyricsViewer(QWidget):
 
         filled_width = 0.0
         for ch in line.chars:
-            text_width = self._text_width_map.get(ch.char, 1.0)
+            text_width = self._textWidth(ch.char)
             if ch.duration <= 0:
                 progress = 1.0 if position >= ch.start else 0.0
             else:

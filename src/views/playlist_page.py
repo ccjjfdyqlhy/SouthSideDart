@@ -9,6 +9,7 @@ from core.app_context import AppContext
 from core.config import cfg
 
 from core.color import mixColor
+from core.qt_utils import clearListWidget
 from imports import (
     BACKGROUND_RATIO_CHANGED,
     PLAY_PLAYLIST_STORABLE,
@@ -220,8 +221,8 @@ class PlaylistPage(QWidget):
         refresh_seq = self._playlist_refresh_seq
         val = self.lst.verticalScrollBar().value()
         songs = list(self._pm.playlist)
+        clearListWidget(self.lst)
         self._song_cards = []
-        self.lst.clear()
         self._pm.clearPreload()
 
         self._appendPlaylistBatch(refresh_seq, songs, 0, val)

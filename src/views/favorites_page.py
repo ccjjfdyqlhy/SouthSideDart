@@ -6,6 +6,7 @@ import threading
 import shiboken6
 
 from core.app_context import AppContext
+from core.qt_utils import clearListWidget
 from imports import (
     FAVORITES_CHANGED,
     MWINDOW_REFRESH_FOLDERS,
@@ -198,8 +199,8 @@ class FavoritesPage(QWidget):
         self.title_label.setText(tr('favorites_page.none'))
         self.setBatchMode(False)
         self.batch_btn.setChecked(False)
+        clearListWidget(self.song_viewer)
         self._song_cards = []
-        self.song_viewer.clear()
 
     def setDisplayFolder(self, folder: LocalFolderInfo | CloudFolderInfo):
         self.setBatchMode(False)
@@ -262,8 +263,8 @@ class FavoritesPage(QWidget):
     def refresh(self):
         self._favorites_refresh_seq += 1
         refresh_seq = self._favorites_refresh_seq
+        clearListWidget(self.song_viewer)
         self._song_cards = []
-        self.song_viewer.clear()
 
         if self.is_cloud and self.curr_cloud_folder:
             self.title_label.setText(self.curr_cloud_folder.folder_name)

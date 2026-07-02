@@ -4,6 +4,7 @@ import logging
 
 import os
 import threading
+import weakref
 from typing import Callable, TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -275,7 +276,18 @@ class SearchSongCard(QWidget):
         self.setLayout(global_layout)
 
         self.load = False
+        self._released = False
         self.imageLoaded.connect(self.onImageLoaded)
+
+    def releaseResources(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self.load = False
+        try:
+            self.img_label.clear()
+        except RuntimeError:
+            pass
 
     def play(self):
         self._play_callback(self)
@@ -378,25 +390,37 @@ class SearchSongCard(QWidget):
             duration=3000,
         )
 
-    def loadDetailAndImage(self):
+    def loadDetailAndImage(self) -> None:
+        if self._released:
+            return
         self.load = True
+        card_ref = weakref.ref(self)
+        info_id = str(self.info.id)
+        mwindow = self._mwindow
 
         def _do():
-            detail = getBackend().getTrackDetail(str(self.info.id))
+            detail = getBackend().getTrackDetail(info_id)
             img_url = detail.cover_url
-            self.detail.image_url = img_url
-
             img_bytes = requests.get(img_url).content
+            card = card_ref()
+            if card is None or card._released:
+                return
+            try:
+                card.objectName()
+            except RuntimeError:
+                return
+            card.detail.image_url = img_url
+            card.imageLoaded.emit(img_bytes)
 
-            self.imageLoaded.emit(img_bytes)
+        asyncTask(_do, (), mwindow)
 
-        asyncTask(_do, (), self._mwindow)
-
-    def onImageLoaded(self, bytes):
+    def onImageLoaded(self, image_bytes: bytes) -> None:
+        if self._released:
+            return
         self.ring.hide()
         self.img_label.show()
         pixmap = QPixmap()
-        pixmap.loadFromData(bytes)
+        pixmap.loadFromData(image_bytes)
         if not pixmap.isNull():
             scaled = pixmap.scaled(
                 self.img_label.size(),
@@ -430,6 +454,10 @@ class _SongCardItem(QWidget):
         self._plp: PlaylistPage = plp  # type: ignore
         self.load = False
         self.selection_mode = False
+        self._released = False
+        self._image_event_subscribed = False
+        self._storable_event_subscribed = False
+        self._load_image_seq = 0
 
         self.setWindowOpacity(0)
         self.setMinimumHeight(SONG_CARD_HEIGHT)
@@ -496,30 +524,61 @@ class _SongCardItem(QWidget):
             self.load = True
             self.loadImage()
             if self._dp:
-                event_bus.subscribe(
-                    IMAGE_ASSET_PERSISTED, self._on_image_asset_persisted
-                )
+                self._subscribeImageAsset()
             if self.img_label.pixmap() is None or self.img_label.pixmap().isNull():
                 threading.Thread(
                     target=self._auto_download_missing_image, daemon=True
                 ).start()
 
-        event_bus.subscribe(STORABLE_COUNT_CHANGED, self._on_storable_count_changed)
+        self._subscribeStorableCount()
 
-    def _on_storable_count_changed(self, storable: SongStorable):
+    def _subscribeImageAsset(self) -> None:
+        if self._image_event_subscribed:
+            return
+        event_bus.subscribe(IMAGE_ASSET_PERSISTED, self._on_image_asset_persisted)
+        self._image_event_subscribed = True
+
+    def _subscribeStorableCount(self) -> None:
+        if self._storable_event_subscribed:
+            return
+        event_bus.subscribe(STORABLE_COUNT_CHANGED, self._on_storable_count_changed)
+        self._storable_event_subscribed = True
+
+    def releaseResources(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self.load = False
+        self._load_image_seq += 1
+        if self._image_event_subscribed:
+            event_bus.unsubscribe(IMAGE_ASSET_PERSISTED, self._on_image_asset_persisted)
+            self._image_event_subscribed = False
+        if self._storable_event_subscribed:
+            event_bus.unsubscribe(
+                STORABLE_COUNT_CHANGED, self._on_storable_count_changed
+            )
+            self._storable_event_subscribed = False
+        try:
+            self.img_label.clear()
+        except RuntimeError:
+            pass
+
+    def _on_storable_count_changed(self, storable: SongStorable) -> None:
+        if self._released:
+            return
         if storable != self.storable:
             return
 
         self.storable.count = storable.count
         self.count_label.setText(str(storable.count))
 
-    def loadDetailAndImage(self):
-        if self.load:
+    def loadDetailAndImage(self) -> None:
+        if self.load or self._released:
             return
         self.load = True
         self.loadImage()
         if self._dp:
-            event_bus.subscribe(IMAGE_ASSET_PERSISTED, self._on_image_asset_persisted)
+            self._subscribeImageAsset()
         try:
             needs_download = (
                 self.img_label.pixmap() is None or self.img_label.pixmap().isNull()
@@ -531,7 +590,9 @@ class _SongCardItem(QWidget):
                 target=self._auto_download_missing_image, daemon=True
             ).start()
 
-    def _on_image_asset_persisted(self, storable: SongStorable):
+    def _on_image_asset_persisted(self, storable: SongStorable) -> None:
+        if self._released:
+            return
         if storable is self.storable:
             self.loadImage()
 
@@ -553,7 +614,9 @@ class _SongCardItem(QWidget):
     def _onSelectionChanged(self, state: int) -> None:
         self.selectionChanged.emit(self.storable, self.select_box.isChecked())
 
-    def _auto_download_missing_image(self):
+    def _auto_download_missing_image(self) -> None:
+        if self._released:
+            return
         storable = self.storable
         if storable.imageCached():
             return
@@ -578,6 +641,8 @@ class _SongCardItem(QWidget):
                 return
             storable._writeCache(image_bytes, IMAGE_DATA_DIR, 'image_cache_hash')
             favorites_manager._save()
+            if self._released:
+                return
             if self._mwindow:
                 self._mwindow.ctx.addScheduledTask(
                     lambda s=storable: event_bus.emit(IMAGE_ASSET_PERSISTED, s)
@@ -587,29 +652,46 @@ class _SongCardItem(QWidget):
         finally:
             lock.release()
 
-    def loadImage(self):
+    def loadImage(self) -> None:
         if self._mwindow is None:
             return
+        if self._released:
+            return
 
+        self._load_image_seq += 1
+        load_image_seq = self._load_image_seq
+        card_ref = weakref.ref(self)
+        storable = self.storable
+        mwindow = self._mwindow
         result: dict[str, bytes] = {}
 
         def _decode():
             try:
-                image_bytes = self.storable.getImageBytes()
+                image_bytes = storable.getImageBytes()
             except FileNotFoundError:
                 return
             result['image_bytes'] = image_bytes
 
         def _finish():
+            card = card_ref()
+            if card is None or card._released:
+                return
+            if card._load_image_seq != load_image_seq:
+                return
             image_bytes = result.get('image_bytes')
             if image_bytes is None:
                 return
 
             def _apply_pixmap():
-                if not self.load:
+                card = card_ref()
+                if card is None or card._released:
+                    return
+                if card._load_image_seq != load_image_seq:
+                    return
+                if not card.load:
                     return
                 try:
-                    self.img_label.objectName()
+                    card.img_label.objectName()
                 except RuntimeError:
                     return
                 image = QImage()
@@ -619,16 +701,16 @@ class _SongCardItem(QWidget):
                 pixmap = QPixmap.fromImage(image)
                 if not pixmap.isNull():
                     scaled = pixmap.scaled(
-                        self.img_label.size(),
+                        card.img_label.size(),
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,
                     )
-                    self.img_label.setPixmap(scaled)
+                    card.img_label.setPixmap(scaled)
 
-            self._mwindow.ctx.addScheduledTask(_apply_pixmap)
+            mwindow.ctx.addScheduledTask(_apply_pixmap)
 
         try:
-            asyncTask(_decode, (), self._mwindow, _finish)
+            asyncTask(_decode, (), mwindow, _finish)
         except Exception:
             pass
 
