@@ -18,21 +18,46 @@ import threading
 import time
 from typing import Any, Literal
 
-from core.audio_player import PatchedAudioSegment as AudioSegment_
-from core.color import mixColor
-from core.lyrics import LRCLyricParser, LyricInfo, YRCLyricInfo, YRCLyricParser
-from imports import (
-    QApplication,
-    QBuffer,
-    QColor,
-    QFont,
-    QFontDatabase,
-    QFontMetricsF,
-    QIODevice,
-    QImage,
-    QPainter,
-    QRect,
-)
+_SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _SRC_DIR in sys.path:
+    sys.path.remove(_SRC_DIR)
+sys.path.insert(0, _SRC_DIR)
+sys.path.append(os.path.join(_SRC_DIR, 'utils'))
+sys.path.append(os.path.join(_SRC_DIR, 'views'))
+sys.path.append(os.path.join(_SRC_DIR, 'services'))
+
+try:
+    from core.audio_player import PatchedAudioSegment as AudioSegment_
+    from core.color import mixColor
+    from core.lyrics import LRCLyricParser, LyricInfo, YRCLyricInfo, YRCLyricParser
+    from imports import (
+        QApplication,
+        QBuffer,
+        QColor,
+        QFont,
+        QFontDatabase,
+        QFontMetricsF,
+        QIODevice,
+        QImage,
+        QPainter,
+        QRect,
+    )
+except ImportError:
+    from audio_player import PatchedAudioSegment as AudioSegment_
+    from color import mixColor
+    from lyrics import LRCLyricParser, LyricInfo, YRCLyricInfo, YRCLyricParser
+    from imports import (
+        QApplication,
+        QBuffer,
+        QColor,
+        QFont,
+        QFontDatabase,
+        QFontMetricsF,
+        QIODevice,
+        QImage,
+        QPainter,
+        QRect,
+    )
 
 
 Alignment = Literal['left', 'center', 'right']
@@ -113,7 +138,7 @@ def lyricVideoExportDebugInfo() -> list[str]:
         mode = str(_EXPORT_DEBUG_INFO.get('mode', 'idle'))
         frames = str(_EXPORT_DEBUG_INFO.get('frames', '0/0'))
         workers = str(_EXPORT_DEBUG_INFO.get('workers', '0'))
-        fps = float(_EXPORT_DEBUG_INFO.get('fps', 0.0))
+        fps = float(_EXPORT_DEBUG_INFO.get('fps', 0.0)) # type: ignore
         return [
             f'mode: {mode}',
             f'workers: {workers}',
@@ -1480,7 +1505,7 @@ def _ensureWorkerApplication() -> QApplication:
     )
     if font_path.is_file():
         QFontDatabase.addApplicationFont(str(font_path))
-    return app
+    return app # type: ignore
 
 
 def _dictPayload(payload: object) -> dict[str, Any]:
@@ -1747,7 +1772,7 @@ def _qimageBytes(image: QImage) -> bytes:
 def _imageToBase64(image: QImage) -> str:
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, 'PNG')
+    image.save(buffer, 'PNG') # type: ignore
     data = buffer.data().data()
     buffer.close()
     return base64.b64encode(data).decode('ascii')
@@ -1758,7 +1783,7 @@ def _imageFromBase64(data: str) -> QImage | None:
         return None
     try:
         image = QImage()
-        image.loadFromData(base64.b64decode(data), 'PNG')
+        image.loadFromData(base64.b64decode(data), 'PNG') # type: ignore
     except Exception:
         return None
     return image if not image.isNull() else None

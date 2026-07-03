@@ -1,4 +1,8 @@
-from core.app_context import AppContext
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from core.app_context import AppContext
 from core.backend import getBackend
 from core.models import CloudFolderInfo, SongStorable
 from core.qt_utils import removeWidgets
@@ -30,7 +34,7 @@ from views.song_card import CloudFavoriteSongCard
 
 
 class HomePage(SScrollArea):
-    def __init__(self, ctx: AppContext):
+    def __init__(self, ctx: 'AppContext'):
         super().__init__()
         self.ctx = ctx
 

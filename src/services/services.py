@@ -2,8 +2,10 @@ import logging
 import os
 import threading
 import time
+from typing import TYPE_CHECKING
 
-from core.app_context import AppContext
+if TYPE_CHECKING:
+    from core.app_context import AppContext
 from core.backend import getBackend
 from core.config import cfg, saveConfig
 from core.dialogs import getTextLineedit
@@ -37,7 +39,7 @@ from views.folder_card import CloudFolderCard, LocalFolderCard
 
 
 class EventsServices(QObject):
-    def __init__(self, ctx: AppContext) -> None:
+    def __init__(self, ctx: 'AppContext') -> None:
         super().__init__()
         self.ctx = ctx
         self._app = ctx.app

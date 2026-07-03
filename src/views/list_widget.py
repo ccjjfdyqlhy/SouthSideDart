@@ -17,6 +17,7 @@ from imports import (
     QObject,
     QPaintEvent,
     QPainter,
+    QPalette,
     QPen,
     QPropertyAnimation,
     QResizeEvent,
@@ -28,6 +29,19 @@ from imports import (
     event_bus,
 )
 from qfluentwidgets import ListWidget, ScrollBar, SmoothScrollArea, TextEdit
+
+
+def setTransparentBackground(widget: QWidget | None) -> None:
+    if widget is None:
+        return
+    widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+    widget.setAutoFillBackground(False)
+
+    palette = widget.palette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(0, 0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Base, QColor(0, 0, 0, 0))
+    widget.setPalette(palette)
 
 
 def _debugging_enabled(widget: QWidget) -> bool:
@@ -375,6 +389,8 @@ class LimitOverlay(QWidget):
 class SListWidget(ListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        setTransparentBackground(self)
+        setTransparentBackground(self.viewport())
 
         self._top_limit = 0.0
         self._bot_limit = 0.0
@@ -481,6 +497,8 @@ class SListWidget(ListWidget):
 class SScrollArea(SmoothScrollArea):
     def __init__(self):
         super().__init__()
+        setTransparentBackground(self)
+        setTransparentBackground(self.viewport())
         self.delegate = SSmoothDelegate(self)
 
         self._top_limit = 0.0
@@ -516,6 +534,11 @@ class SScrollArea(SmoothScrollArea):
         anim.setDuration(800)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         return anim
+
+    def setWidget(self, widget: QWidget | None) -> None:
+        setTransparentBackground(widget)
+        super().setWidget(widget)
+        setTransparentBackground(widget)
 
     def _trigger_limit_anim(self, anim: QPropertyAnimation) -> None:
         anim.stop()

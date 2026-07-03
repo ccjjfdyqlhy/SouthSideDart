@@ -7,10 +7,13 @@ import traceback
 from pathlib import Path
 import atexit
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'views'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'services'))
-sys.path.append(os.path.dirname(__file__))
+_SRC_DIR = os.path.abspath(os.path.dirname(__file__))
+if _SRC_DIR in sys.path:
+    sys.path.remove(_SRC_DIR)
+sys.path.insert(0, _SRC_DIR)
+sys.path.append(os.path.join(_SRC_DIR, 'utils'))
+sys.path.append(os.path.join(_SRC_DIR, 'views'))
+sys.path.append(os.path.join(_SRC_DIR, 'services'))
 
 from views.home_page import HomePage
 from views.library_page import LibraryPage

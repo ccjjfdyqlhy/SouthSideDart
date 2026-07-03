@@ -65,7 +65,7 @@ from core.ws_server import (
     QObjectHandler,
 )
 
-from views.list_widget import SScrollArea
+from views.list_widget import SScrollArea, setTransparentBackground
 from views.number_viewer import NumberViewer, SettableNumberViewer
 
 
@@ -285,7 +285,8 @@ class SettingPage(QWidget):
         return self.ctx.desktop_lyrics_page
 
     def updateTheme(self) -> None:
-        self.setStyleSheet(f'background: #{"000000" if theme.isDark() else "FFFFFF"}')
+        self.setStyleSheet('')
+        setTransparentBackground(self)
 
     def updateLanguage(self) -> None:
         refreshBoundTexts()

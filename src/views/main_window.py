@@ -46,7 +46,7 @@ from imports import (
 )
 from imports import QCloseEvent, QColor, QKeyEvent, QPainter
 from services.events.events import POST_THEME_CHANGED
-from views.list_widget import SListWidget
+from views.list_widget import SListWidget, setTransparentBackground
 from imports import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import InfoBar
 from qfluentwidgets.window.fluent_window import FluentWindowBase
@@ -99,6 +99,7 @@ class MainWindow(FluentWindowBase):
         )
 
         self.contents_widget = QStackedWidget()
+        setTransparentBackground(self.contents_widget)
         for w in [
             self._fp,
             self._sp,
@@ -109,6 +110,7 @@ class MainWindow(FluentWindowBase):
         ]:
             if ctx.launch_window:
                 ctx.launch_window.push(f'Adding {w} to stacked widget...')
+            setTransparentBackground(w)
             self.contents_widget.addWidget(w)
 
         self.contents_widget.currentChanged.connect(self.onStackedWidgetChanged)
@@ -123,6 +125,7 @@ class MainWindow(FluentWindowBase):
 
         contents_layout = QHBoxLayout()
         contents_widget = QWidget(self)
+        setTransparentBackground(contents_widget)
         contents_widget.setLayout(contents_layout)
         contents_layout.addWidget(self.contents_widget)
 
@@ -303,6 +306,8 @@ class MainWindow(FluentWindowBase):
             self, 'dp_animating', False
         ):
             self.togglePlayingPageExpand()
+
+        setTransparentBackground(self.contents_widget.currentWidget())
 
     def _onSettingsClicked(self):
         self.contents_widget.setCurrentWidget(self._stp)
