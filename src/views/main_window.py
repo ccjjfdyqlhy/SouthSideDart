@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import logging
 import sys
-import time
 
 from core.app_context import AppContext
 
 from core.backend import getBackend
 from core.dialogs import getTextLineedit
-from core.qt_utils import toQtInt
-from core.smooth import EaseOutTimer
 from imports import (
     BACKGROUND_RATIO_CHANGED,
     ENDING_NO_SOUND,
@@ -18,7 +15,6 @@ from imports import (
     PLAY_CONTINUE_LAST_SONG,
     PLAY_STORABLE,
     REFRESH_RATE_CHANGED,
-    REPAINT,
     SONG_FINISH,
     START_INTER_LOADING,
     START_PROGRESS_LOADING,
@@ -33,7 +29,6 @@ from imports import (
     QAbstractAnimation,
     QEasingCurve,
     QFont,
-    QFontMetricsF,
     QIcon,
     QListWidget,
     QListWidgetItem,
@@ -41,7 +36,6 @@ from imports import (
     QRect,
     QSize,
     QStackedWidget,
-    QWheelEvent,
     Qt,
     QTimer,
     TransparentPushButton,
@@ -57,10 +51,9 @@ from imports import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import InfoBar
 from qfluentwidgets.window.fluent_window import FluentWindowBase
 
-from core import theme
 from core.models import CloudFolderInfo, LocalFolderInfo, SongInfo, SongStorable
 from core.color import mixColor
-from core.config import saveConfig, cfg
+from core.config import cfg
 from core.favorites import favorites_manager, saveFavorites
 from core.icons import bindIcon
 from core.downloader import asyncTask
@@ -69,6 +62,7 @@ from views.account_widget import AccountWidget
 from views.folder_card import CloudFolderCard, LocalFolderCard
 from views.line_edit import SearchLineEdit
 from views.llm_viewer_panel import LLMViewerPanel, LLM_WINDOW_WIDTH_DELTA
+from views.lyric_editor_page import LyricEditorPage
 from views.playing_controller import PlayingController
 from views.song_card import SearchSongCard
 from views.title_bar import SouthsideMusicTitleBar
@@ -97,6 +91,8 @@ class MainWindow(FluentWindowBase):
         self._loading_song: bool = False
         self._stp = ctx.setting_page
         self._plp = ctx.playlist_page
+        self.song_theme: QColor | None = None
+        ctx.lyric_editor_page = LyricEditorPage(ctx)
 
         self.setWindowIcon(
             QIcon(str(Path(__file__).resolve().parent.parent.parent / 'icon.png'))
@@ -109,6 +105,7 @@ class MainWindow(FluentWindowBase):
             self._stp,
             self.ctx.home_page,
             self.ctx.library_page,
+            self.ctx.lyric_editor_page,
         ]:
             if ctx.launch_window:
                 ctx.launch_window.push(f'Adding {w} to stacked widget...')
@@ -136,8 +133,6 @@ class MainWindow(FluentWindowBase):
         self.loading_progressing: bool = False
         self.loading_progress: float = 0
         self.loading_ft = QFont(ctx.harmony_font_family)
-
-        self.song_theme: QColor | None = None
 
         contents_layout.setContentsMargins(0, 48, 0, 0)
 

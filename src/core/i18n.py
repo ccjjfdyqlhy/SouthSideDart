@@ -400,6 +400,32 @@ TRANSLATIONS: dict[str, list[str]] = {
         'No song is playing.',
         '当前没有正在播放的歌曲。',
     ],
+    'lyric_editor.edit_lyrics': ['Edit lyrics', '编辑歌词'],
+    'lyric_editor.next_step': ['Next', '下一步'],
+    'lyric_editor.back_to_edit': ['Back to edit', '返回编辑'],
+    'lyric_editor.save': ['Save', '保存'],
+    'lyric_editor.rewrite_lyrics': ['Rewrite lyrics', '重新写歌词'],
+    'lyric_editor.retry_beats': ['Retry beats', '重新打节拍'],
+    'lyric_editor.no_editable_song': [
+        'No editable song is playing.',
+        '当前没有可编辑的歌曲。',
+    ],
+    'lyric_editor.save_success': ['Lyrics saved.', '歌词已保存。'],
+    'lyric_editor.save_failed': ['Failed to save lyrics.', '歌词保存失败。'],
+    'lyric_editor.empty_lyrics': ['Paste or type lyrics here.', '在此输入歌词。'],
+    'lyric_editor.beat_ready': [
+        'Ready - press Space to start',
+        '准备 - 按下空格开始',
+    ],
+    'lyric_editor.beat_holding': [
+        'Pressed for {seconds}s',
+        '已按下 {seconds} 秒',
+    ],
+    'lyric_editor.beat_waiting': ['Waiting for Space', '等待空格'],
+    'lyric_editor.beat_finished': [
+        'Song finished - choose what to do',
+        '歌曲播放完毕 - 选择下一步',
+    ],
     'update.failed_try_again_later': [
         'Failed to update. Please try again later.',
         '更新失败，请稍后重试。',

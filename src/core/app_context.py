@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from views.setting_page import SettingPage
     from views.home_page import HomePage
     from views.library_page import LibraryPage
+    from views.lyric_editor_page import LyricEditorPage
 
 
 class _ScheduledTaskRunner(QObject):
@@ -99,6 +100,7 @@ class AppContext:
         self.playlist_page: PlaylistPage = cast('PlaylistPage', None)
         self.home_page: HomePage = cast('HomePage', None)
         self.library_page: LibraryPage = cast('LibraryPage', None)
+        self.lyric_editor_page: LyricEditorPage = cast('LyricEditorPage', None)
         self.dependences_window: DependencesWindow = cast('DependencesWindow', None)
         self.debugging_obj: Debugging = cast('Debugging', None)
         self.events_service: EventsServices = cast('EventsServices', None)

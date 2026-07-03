@@ -446,6 +446,12 @@ class PlayingPage(QWidget):
         bindIcon(self.lyric_video_export_button, 'export')
         self.lyric_video_export_button.clicked.connect(self.exportLyricVideo)
 
+        self.lyric_editor_button = PillToolButton(self)
+        self.lyric_editor_button.hide()
+        self.lyric_editor_button.setFixedSize(32, 32)
+        bindIcon(self.lyric_editor_button, 'edit')
+        self.lyric_editor_button.clicked.connect(self.editLyrics)
+
         event_bus.subscribe(PLAYBACK_SONG_LOADING, self._onPlaybackSongLoading)
         event_bus.subscribe(PLAYBACK_IMAGE_LOADED, self._onPlaybackImageLoaded)
         event_bus.subscribe(PLAYBACK_LYRICS_UPDATED, self._onPlaybackLyricsUpdated)
@@ -512,6 +518,7 @@ class PlayingPage(QWidget):
             self.artists_label.setText(_artists_text(song))
         self.translation_button.setVisible(bool(song and song.translated_lyric))
         self.lyric_video_export_button.setVisible(self.cur is not None)
+        self.lyric_editor_button.setVisible(self.cur is not None)
 
         self.update()
 
@@ -675,6 +682,24 @@ class PlayingPage(QWidget):
         event_bus.emit(START_PROGRESS_LOADING)
         asyncTask(_export, (), self._mwindow_obj, _final)
 
+    def editLyrics(self) -> None:
+        if self.cur is None:
+            InfoBar.warning(
+                tr('lyric_editor.edit_lyrics'),
+                tr('lyric_editor.no_editable_song'),
+                parent=self._mwindow_obj,
+                duration=3000,
+            )
+            return
+
+        self.lyric_editor_button.setChecked(False)
+        editor_page = self.ctx.lyric_editor_page
+        if not editor_page.openForCurrentSong():
+            return
+        if self._mwindow_obj.dp_expanded:
+            self._mwindow_obj.togglePlayingPageExpand()
+        self._mwindow_obj.contents_widget.setCurrentWidget(editor_page)
+
     def _lyricVideoSources(self, song: SongStorable) -> LyricVideoSources:
         lyrics = song.getLyrics()
         lyric = self._mgr.cur or lyrics['lyric'] or '[00:00.000]'
@@ -762,6 +787,7 @@ class PlayingPage(QWidget):
         self.title_label.setText(song.name)
         self.artists_label.setText(_artists_text(song))
         self.lyric_video_export_button.setVisible(True)
+        self.lyric_editor_button.setVisible(True)
 
         self._mgr.cur = ''
         self._transmgr.cur = ''
@@ -814,6 +840,7 @@ class PlayingPage(QWidget):
             return
         self.translation_button.setVisible(bool(song.translated_lyric))
         self.lyric_video_export_button.setVisible(True)
+        self.lyric_editor_button.setVisible(True)
         self.viewer.prewarmFontMetrics()
 
     def _onPlaybackError(self, title: str, message: str) -> None:
@@ -873,6 +900,13 @@ class PlayingPage(QWidget):
         self.lyric_video_export_button.move(
             button_x,
             translation_y - 7 - self.lyric_video_export_button.height(),
+        )
+        self.lyric_editor_button.move(
+            button_x,
+            translation_y
+            - 14
+            - self.lyric_video_export_button.height()
+            - self.lyric_editor_button.height(),
         )
         return super().resizeEvent(event)
 

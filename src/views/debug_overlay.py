@@ -37,6 +37,7 @@ class DebugOverlay(QWidget):
         self.last_cpu_time: dict[int, float] = {}
         self.last_wall: dict[int, float] = {}
         self.cmax_value: EaseOutTimer = EaseOutTimer(1, 2)
+        self.tracked_pids: dict[str, set[int]] = {}
         
         self.raise_timer = QTimer(self)
         self.raise_timer.timeout.connect(self.tryRaise)
@@ -62,26 +63,82 @@ class DebugOverlay(QWidget):
             return
         self.raise_()
 
-    def updateDatas(self):
-        self.updateMemories()
-        self.updateCpus()
+    def updateDatas(self) -> None:
+        pids = self._activeProcessPids()
+        self._clearStaleProcessData(pids)
+        self.updateMemories(pids)
+        self.updateCpus(pids)
 
     def _processPids(self) -> dict[str, int]:
         pids = dict(self.ctx.process_pids)
         pids.update(lyricVideoExportDebugProcessPids())
         return pids
 
-    def updateMemories(self):
-        if not self.ctx.debugging:
-            return
-        
+    def _activeProcessPids(self) -> dict[str, int]:
+        active_pids: dict[str, int] = {}
         for name, pid in self._processPids().items():
-            if not self.mem_datas.get(name):
-                self.mem_datas[name] = deque(maxlen=200)
             try:
                 if not self.process_cache.get(pid):
                     self.process_cache[pid] = psutil.Process(pid)
-                self.mem_datas[name].append(self.process_cache[pid].memory_info().rss)
+                if not self.process_cache[pid].is_running():
+                    continue
+            except psutil.Error:
+                continue
+            active_pids[name] = pid
+        return active_pids
+
+    def _clearStaleProcessData(self, pids: dict[str, int]) -> None:
+        stale_names = (
+            set(self.mem_datas)
+            | set(self.cpu_datas)
+            | set(self.cpu_smoothed)
+            | set(self.tracked_pids)
+        ) - set(pids)
+        for name in stale_names:
+            self.mem_datas.pop(name, None)
+            self.cpu_datas.pop(name, None)
+            self.cpu_smoothed.pop(name, None)
+            for pid in self.tracked_pids.pop(name, set()):
+                self.last_cpu_time.pop(pid, None)
+                self.process_cache.pop(pid, None)
+
+        active_parent_pids = set(pids.values())
+        for pid in list(self.last_wall):
+            if pid not in active_parent_pids:
+                self.last_wall.pop(pid, None)
+
+    def _shouldTrackChildren(self, name: str) -> bool:
+        return name.startswith('lyric-video-')
+
+    def _trackedProcesses(self, name: str, pid: int) -> list[psutil.Process]:
+        if not self.process_cache.get(pid):
+            self.process_cache[pid] = psutil.Process(pid)
+        process = self.process_cache[pid]
+        if not self._shouldTrackChildren(name):
+            return [process]
+        return [process, *process.children(recursive=True)]
+
+    def _updateTrackedPids(self, name: str, processes: list[psutil.Process]) -> None:
+        pids = {process.pid for process in processes}
+        for pid in self.tracked_pids.get(name, set()) - pids:
+            self.last_cpu_time.pop(pid, None)
+            self.process_cache.pop(pid, None)
+        self.tracked_pids[name] = pids
+
+    def updateMemories(self, pids: dict[str, int]) -> None:
+        if not self.ctx.debugging:
+            return
+        
+        for name, pid in pids.items():
+            if not self.mem_datas.get(name):
+                self.mem_datas[name] = deque(maxlen=200)
+            try:
+                processes = self._trackedProcesses(name, pid)
+                rss = sum(
+                    process.memory_info().rss
+                    for process in processes
+                )
+                self.mem_datas[name].append(rss)
             except psutil.Error:
                 continue
 
@@ -91,34 +148,32 @@ class DebugOverlay(QWidget):
                 max_v = max(max_v, v)
         self.mmax_value.target_value = max_v
 
-    def updateCpus(self):
+    def updateCpus(self, pids: dict[str, int]) -> None:
         if not self.ctx.debugging:
             return
         
-        for name, pid in self._processPids().items():
+        for name, pid in pids.items():
             if not self.cpu_datas.get(name):
                 self.cpu_datas[name] = deque(maxlen=200)
                 self.cpu_smoothed[name] = deque(maxlen=20)
             try:
-                if not self.process_cache.get(pid):
-                    self.process_cache[pid] = psutil.Process(pid)
-                process = self.process_cache[pid]
-                times = process.cpu_times()
+                processes = self._trackedProcesses(name, pid)
+                self._updateTrackedPids(name, processes)
+                cpu_delta = 0.0
+                for process in processes:
+                    times = process.cpu_times()
+                    cpu_time = times.user + times.system
+                    last_cpu_time = self.last_cpu_time.get(process.pid)
+                    if last_cpu_time is not None:
+                        cpu_delta += max(0.0, cpu_time - last_cpu_time)
+                    self.last_cpu_time[process.pid] = cpu_time
             except psutil.Error:
                 continue
-            cpu_time = times.user + times.system
             now = time.perf_counter()
             elapsed = max(now - self.last_wall.get(pid, 0.0), 0.001)
-            last_cpu_time = self.last_cpu_time.get(pid)
-            if last_cpu_time is None:
-                cpu_percent = 0.0
-            else:
-                cpu_percent = (
-                    max(0.0, cpu_time - last_cpu_time) / elapsed / self.cpu_cores * 100
-                )
+            cpu_percent = cpu_delta / elapsed / self.cpu_cores * 100
             self.cpu_smoothed[name].append(cpu_percent)
             self.cpu_datas[name].append(sum(self.cpu_smoothed[name]) / len(self.cpu_smoothed[name]))
-            self.last_cpu_time[pid] = cpu_time
             self.last_wall[pid] = now
 
         max_v = 0

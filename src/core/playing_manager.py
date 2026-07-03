@@ -1906,16 +1906,22 @@ class PlayingManager:
                 else:
                     transmgr.cur = lyrics['translated_lyric'] or '[00:00.000]'
             else:
-                mgr.cur = lyric_result.lyric or '[00:00.000]'
-                ymgr.cur = lyric_result.yrc_lyric or ''
-                ytlrc = lyric_result.ytlrc_lyric or ''
+                lyrics = lyric_target.getLyrics()
+                lyric = lyrics['lyric'] or lyric_result.lyric or '[00:00.000]'
+                translated_lyric = (
+                    lyrics['translated_lyric'] or lyric_result.translated_lyric or ''
+                )
+                yrc_lyric = lyrics['yrc_lyric'] or lyric_result.yrc_lyric or ''
+                ytlrc = lyrics.get('ytlrc_lyric', '') or lyric_result.ytlrc_lyric or ''
+                mgr.cur = lyric
+                ymgr.cur = yrc_lyric
                 if ymgr.cur and ytlrc:
                     transmgr.cur = ytlrc
                 else:
-                    transmgr.cur = lyric_result.translated_lyric or '[00:00.000]'
+                    transmgr.cur = translated_lyric or '[00:00.000]'
                 lyric_target.writeLyrics(
                     mgr.cur,
-                    transmgr.cur if transmgr.cur != '[00:00.000]' else '',
+                    translated_lyric,
                     ymgr.cur,
                     ytlrc,
                 )
