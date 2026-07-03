@@ -39,6 +39,7 @@ class SearchPage(QWidget):
         self.img_card_map: dict[str, SearchSongCard] = {}
 
         self.searching = False
+        self.can_load_more = True
         self.curr_offset = 0
         self.last_search = ''
 
@@ -100,6 +101,7 @@ class SearchPage(QWidget):
             and bar.value() >= bar.maximum() - 5
             and not self.searching
             and self.ctx.main_window.contents_widget.currentWidget() == self
+            and self.can_load_more
         ):
             self._logger.info('load more')
             self.search(self.ctx.main_window.search_input.text(), self.curr_offset)
@@ -154,6 +156,8 @@ class SearchPage(QWidget):
                 result = getBackend().searchSong(keywords, offset=offset)
             else:
                 result = getBackend().searchPlaylist(keywords, offset=offset)
+
+            self.can_load_more = bool(result)
 
             def _apply() -> None:
                 if search_type == 'Songs':

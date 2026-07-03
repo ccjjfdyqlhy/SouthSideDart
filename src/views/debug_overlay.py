@@ -4,8 +4,9 @@ import time
 
 import psutil
 
-from imports import REPAINT, QMouseEvent, QPainterPath, QPen, QPoint, QRect, QTimer, QWidget, QFont, QFontMetricsF, Qt, QWheelEvent, QPainter, QColor, event_bus
+from imports import REPAINT, QHideEvent, QMouseEvent, QPainterPath, QPen, QPoint, QRect, QShowEvent, QTimer, QWidget, QFont, QFontMetricsF, Qt, QWheelEvent, QPainter, QColor, event_bus
 from core.app_context import AppContext
+from core.lyric_video_export import lyricVideoExportDebugInfo, lyricVideoExportDebugProcessPids
 from core.smooth import EaseOutTimer
 from core import theme
 
@@ -31,12 +32,14 @@ class DebugOverlay(QWidget):
         self.mmax_value: EaseOutTimer = EaseOutTimer(1, 2)
 
         self.cpu_datas: dict[str, deque[float]] = {}
+        self.cpu_smoothed: dict[str, deque[float]] = {}
         self.cpu_cores = os.cpu_count() or 1
         self.last_cpu_time: dict[int, float] = {}
         self.last_wall: dict[int, float] = {}
         self.cmax_value: EaseOutTimer = EaseOutTimer(1, 2)
-
-        self.collect_timer.start(100)
+        
+        self.raise_timer = QTimer(self)
+        self.raise_timer.timeout.connect(self.tryRaise)
 
         self.process_cache: dict[int, psutil.Process] = {}
 
@@ -44,20 +47,43 @@ class DebugOverlay(QWidget):
 
         event_bus.subscribe(REPAINT, self.refresh)
 
+    def showEvent(self, event: QShowEvent) -> None:
+        self.collect_timer.start(50)
+        self.raise_timer.start(1000)
+        return super().showEvent(event)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        self.collect_timer.stop()
+        self.raise_timer.stop()
+        return super().hideEvent(event)
+
+    def tryRaise(self):
+        if self.isHidden():
+            return
+        self.raise_()
+
     def updateDatas(self):
         self.updateMemories()
         self.updateCpus()
+
+    def _processPids(self) -> dict[str, int]:
+        pids = dict(self.ctx.process_pids)
+        pids.update(lyricVideoExportDebugProcessPids())
+        return pids
 
     def updateMemories(self):
         if not self.ctx.debugging:
             return
         
-        for name, pid in self.ctx.process_pids.items():
+        for name, pid in self._processPids().items():
             if not self.mem_datas.get(name):
                 self.mem_datas[name] = deque(maxlen=200)
-            if not self.process_cache.get(pid):
-                self.process_cache[pid] = psutil.Process(pid)
-            self.mem_datas[name].append(self.process_cache[pid].memory_info().rss)
+            try:
+                if not self.process_cache.get(pid):
+                    self.process_cache[pid] = psutil.Process(pid)
+                self.mem_datas[name].append(self.process_cache[pid].memory_info().rss)
+            except psutil.Error:
+                continue
 
         max_v = 0
         for _, lst in self.mem_datas.items():
@@ -69,13 +95,17 @@ class DebugOverlay(QWidget):
         if not self.ctx.debugging:
             return
         
-        for name, pid in self.ctx.process_pids.items():
+        for name, pid in self._processPids().items():
             if not self.cpu_datas.get(name):
                 self.cpu_datas[name] = deque(maxlen=200)
-            if not self.process_cache.get(pid):
-                self.process_cache[pid] = psutil.Process(pid)
-            process = self.process_cache[pid]
-            times = process.cpu_times()
+                self.cpu_smoothed[name] = deque(maxlen=20)
+            try:
+                if not self.process_cache.get(pid):
+                    self.process_cache[pid] = psutil.Process(pid)
+                process = self.process_cache[pid]
+                times = process.cpu_times()
+            except psutil.Error:
+                continue
             cpu_time = times.user + times.system
             now = time.perf_counter()
             elapsed = max(now - self.last_wall.get(pid, 0.0), 0.001)
@@ -86,7 +116,8 @@ class DebugOverlay(QWidget):
                 cpu_percent = (
                     max(0.0, cpu_time - last_cpu_time) / elapsed / self.cpu_cores * 100
                 )
-            self.cpu_datas[name].append(cpu_percent)
+            self.cpu_smoothed[name].append(cpu_percent)
+            self.cpu_datas[name].append(sum(self.cpu_smoothed[name]) / len(self.cpu_smoothed[name]))
             self.last_cpu_time[pid] = cpu_time
             self.last_wall[pid] = now
 
@@ -216,8 +247,17 @@ class DebugOverlay(QWidget):
                     painter.drawPath(path)
                 painter.restore()
 
-            painter.drawText(5, -215 - self.content_height, 'Memory')
-            y += 100
+            y += 10
+            export_info = lyricVideoExportDebugInfo()
+            if export_info:
+                painter.setFont(self.title_ft)
+                painter.drawText(10, y, 'Lyric Video Export')
+                y += self.title_height + 10
+                painter.setFont(self.content_ft)
+                for line in export_info:
+                    painter.drawText(20, y, line)
+                    y += self.content_height + 1
+
             for info in self.ctx.debugging_obj.infos:
                 name, lines = next(iter(info.items()))
                 painter.setFont(self.title_ft)

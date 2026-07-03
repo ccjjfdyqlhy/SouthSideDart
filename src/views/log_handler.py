@@ -63,6 +63,9 @@ class LogHandler(logging.Handler):
 
         message = record.getMessage()
 
+        if 'QFluentWidgets' in message:
+            return
+
         color = {
             'DEBUG': Fore.LIGHTBLACK_EX,
             'INFO': Fore.LIGHTGREEN_EX,

@@ -31,7 +31,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_ZIP = os.path.join(SCRIPT_DIR, 'python.zip')
 EMBED_DIR = os.path.join(SCRIPT_DIR, 'embed_python')
 BUILD_VENV = os.path.join(SCRIPT_DIR, 'build_venv')
-FREE_THREADED_PYTHON = os.path.join(SCRIPT_DIR, '.python-ft-pyside-blocked')
+FREE_THREADED_PYTHON = os.path.join(SCRIPT_DIR, 'freethreaded_python')
+FREE_THREADED_VENV = os.path.join(SCRIPT_DIR, 'freethreaded_venv')
 GET_PIP = os.path.join(SCRIPT_DIR, 'get-pip.py')
 REQUIREMENTS = os.path.join(SCRIPT_DIR, 'embed_python_requirements.txt')
 REQUIREMENTS_HASH = os.path.join(SCRIPT_DIR, '.requirements_sha256')
@@ -41,6 +42,9 @@ FREE_THREADED_WORKER_PACKAGES = [
     'pillow',
     'pydub',
     'audioop-lts',
+]
+FREE_THREADED_OPTIONAL_PACKAGES = [
+    'pyside6',
 ]
 
 PYTHON_VERSION = '3.14.2'
@@ -449,6 +453,10 @@ def _free_threaded_python_exe() -> str:
     return os.path.join(FREE_THREADED_PYTHON, 'python.exe')
 
 
+def _free_threaded_venv_python_exe() -> str:
+    return os.path.join(FREE_THREADED_VENV, 'Scripts', 'python.exe')
+
+
 def _is_free_threaded_python(python_exe: str) -> bool:
     if not os.path.isfile(python_exe):
         return False
@@ -498,6 +506,23 @@ def _copy_free_threaded_runtime(source_python: str) -> None:
     )
 
 
+def _ensure_free_threaded_venv(base_python: str) -> str:
+    venv_python = _free_threaded_venv_python_exe()
+    if not _is_free_threaded_python(venv_python):
+        _safe_remove(FREE_THREADED_VENV)
+        print(f'  Creating free-threaded venv at {FREE_THREADED_VENV}...')
+        run([base_python, '-m', 'venv', FREE_THREADED_VENV, '--clear'], cwd=SCRIPT_DIR)
+        if not _is_free_threaded_python(venv_python):
+            raise SetupError('Free-threaded venv failed validation.')
+
+    try:
+        run([venv_python, '-m', 'pip', '--version'], capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        run([venv_python, '-m', 'ensurepip', '--upgrade'], cwd=SCRIPT_DIR)
+
+    return venv_python
+
+
 def _setup_free_threaded_worker_python() -> None:
     print('\n[2/6] Setting up free-threaded worker Python...')
 
@@ -510,24 +535,42 @@ def _setup_free_threaded_worker_python() -> None:
 
     env = os.environ.copy()
     env['PYTHON_GIL'] = '0'
-    site_packages = os.path.join(FREE_THREADED_PYTHON, 'Lib', 'site-packages')
-    os.makedirs(site_packages, exist_ok=True)
+    venv_python = _ensure_free_threaded_venv(ft_python)
     run(
         [
-            ft_python,
+            venv_python,
             '-m',
             'pip',
             'install',
             '--no-input',
             '--no-cache-dir',
             '--upgrade',
-            '--target',
-            site_packages,
             *FREE_THREADED_WORKER_PACKAGES,
         ],
         cwd=SCRIPT_DIR,
         env=env,
     )
+    for package in FREE_THREADED_OPTIONAL_PACKAGES:
+        try:
+            run(
+                [
+                    venv_python,
+                    '-m',
+                    'pip',
+                    'install',
+                    '--no-input',
+                    '--no-cache-dir',
+                    '--upgrade',
+                    package,
+                ],
+                cwd=SCRIPT_DIR,
+                env=env,
+            )
+        except subprocess.CalledProcessError:
+            print(
+                f'  [WARNING] Optional free-threaded package {package} '
+                'is not available for this Python ABI.'
+            )
 
 
 # ---------------------------------------------------------------------------

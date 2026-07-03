@@ -510,14 +510,19 @@ class FreeThreadedJsonSender:
             if value:
                 candidates.append(Path(value))
 
-        candidates.append(root / '.python-ft-pyside-blocked' / 'python.exe')
-
         for name in (
+            'freethreaded_venv',
             '.venv-ft',
             '.venv-ft-pyside-blocked',
             '.venv-free-threaded',
         ):
             candidates.append(root / name / 'Scripts' / 'python.exe')
+
+        for name in (
+            'freethreaded_python',
+            '.python-ft-pyside-blocked',
+        ):
+            candidates.append(root / name / 'python.exe')
 
         appdata = os.environ.get('APPDATA')
         if appdata:

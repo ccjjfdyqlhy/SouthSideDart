@@ -8,7 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-.python-ft-pyside-blocked/
+freethreaded_python/
+freethreaded_venv/
 
 # other
 *.zip
@@ -45,6 +46,7 @@ update.json
 api-reference/
 
 *.flac
+*.mp4
 
 # 个人
 index.js

@@ -98,6 +98,17 @@ class Config:
     show_advanced_settings: bool = False
     setting_section_expanded: dict[str, bool] = field(default_factory=dict)
 
+    lyric_video_export_ext: str = '.mp4'
+    lyric_video_export_bitrate_kbps: int = 8000
+    lyric_video_export_display_line_count: int = 5
+    lyric_video_export_word_by_word: bool = True
+    lyric_video_export_pure_color: bool = False
+    lyric_video_export_with_translation: bool = True
+    lyric_video_export_alignment: Literal['left', 'center', 'right'] = 'center'
+    lyric_video_export_background_color: str = '#00B140'
+    lyric_video_export_with_audio: bool = True
+    lyric_video_export_scroll_animation: bool = True
+
     download_concurrent_threads: int = 16
 
     llm_base_url: str = 'https://api.openai.com/v1'
@@ -166,6 +177,32 @@ def _songFromObject(data: Any) -> SongStorable | None:
         return None
 
 
+def _normalizeInt(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, result))
+
+
+def _normalizeOddInt(value: Any, default: int, minimum: int, maximum: int) -> int:
+    result = _normalizeInt(value, default, minimum, maximum)
+    if result % 2 == 0:
+        result += 1 if result < maximum else -1
+    return result
+
+
+def _normalizeHexColor(value: Any, default: str) -> str:
+    text = str(value).strip()
+    if text.startswith('#'):
+        text = text[1:]
+    if len(text) != 6:
+        return default
+    if any(char not in '0123456789abcdefABCDEF' for char in text):
+        return default
+    return f'#{text.upper()}'
+
+
 def _applyConfigJsonObject(data: dict[str, Any]) -> None:
     if data.get('language') not in ('en_US', 'zh_CN'):
         data.pop('language', None)
@@ -192,6 +229,28 @@ def _applyConfigJsonObject(data: dict[str, Any]) -> None:
         data['last_playlist'] = [song] if song else []
         data['last_playing_index'] = 0 if song else -1
     data.pop('last_playing_song', None)
+
+    if data.get('lyric_video_export_ext') not in ('.mp4', '.av1', '.mkv', '.webm'):
+        data['lyric_video_export_ext'] = Config.lyric_video_export_ext
+    data['lyric_video_export_bitrate_kbps'] = _normalizeInt(
+        data.get('lyric_video_export_bitrate_kbps'),
+        Config.lyric_video_export_bitrate_kbps,
+        100,
+        100000,
+    )
+    data['lyric_video_export_display_line_count'] = _normalizeOddInt(
+        data.get('lyric_video_export_display_line_count'),
+        Config.lyric_video_export_display_line_count,
+        1,
+        21,
+    )
+    if data.get('lyric_video_export_alignment') not in ('left', 'center', 'right'):
+        data['lyric_video_export_alignment'] = Config.lyric_video_export_alignment
+    data['lyric_video_export_background_color'] = _normalizeHexColor(
+        data.get('lyric_video_export_background_color'),
+        Config.lyric_video_export_background_color,
+    )
+    data.pop('lyric_video_export_x_axis_animation', None)
 
     providers = data.get('llm_providers')
     if isinstance(providers, list):
