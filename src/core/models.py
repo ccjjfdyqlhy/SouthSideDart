@@ -702,3 +702,9 @@ class MusicServiceBackend(ABC):
 
     @abstractmethod
     def getPersonalFMSongs(self) -> list[SongStorable]: ...
+
+    @abstractmethod
+    def getPrivateRadarSongs(self) -> list[SongStorable]: ...
+
+    @abstractmethod
+    def getSimilarFMSongs(self) -> list[SongStorable]: ...

@@ -97,6 +97,7 @@ from . import (  # noqa: E402
     playmode as playmode,
     playlist as playlist,
     radio as radio,
+    recommend as recommend,
     track as track,
     user as user,
     video as video,

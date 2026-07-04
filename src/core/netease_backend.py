@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import urllib.parse
 from typing import Any, Literal
 
 import pyncm
@@ -51,6 +52,101 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             image_cache_hash=cached.get('image_cache_hash', ''),
             content_cache_hash=cached.get('content_cache_hash', ''),
         )
+
+    def _songsFromApiSongs(self, songs: object) -> list[SongStorable]:
+        if not isinstance(songs, list):
+            return []
+        result: list[SongStorable] = []
+        for song in songs:
+            if not isinstance(song, dict):
+                continue
+            storable = self._songStorableFromApiSong(song)
+            if storable is not None:
+                result.append(storable)
+        return result
+
+    def _pcRecommendItems(self) -> list[dict[str, Any]]:
+        response = apis.recommend.getPcRecommendResource()
+        assert isinstance(response, dict), 'Invalid PC recommend response'
+        assert response.get('code') == 200, f'API Error: {response}'
+        data = response.get('data') or {}
+        if not isinstance(data, dict):
+            return []
+        blocks = data.get('blocks') or []
+        if not isinstance(blocks, list):
+            return []
+
+        result: list[dict[str, Any]] = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            block_data = block.get('blockData') or {}
+            if not isinstance(block_data, dict):
+                continue
+            items = block_data.get('items') or []
+            if not isinstance(items, list):
+                continue
+            result.extend(item for item in items if isinstance(item, dict))
+        return result
+
+    def _findPcRecommendItem(
+        self,
+        module_types: set[str],
+        cover_texts: set[str],
+        resource_types: set[str],
+        position_codes: set[str],
+    ) -> dict[str, Any] | None:
+        for item in self._pcRecommendItems():
+            module_type = str(item.get('moduleType') or '')
+            cover_text = str(item.get('coverText') or '')
+            resource_type = str(item.get('resourceType') or '')
+            position_code = str(item.get('positionCode') or '')
+            if module_type in module_types:
+                return item
+            if cover_text in cover_texts:
+                return item
+            if resource_type in resource_types:
+                return item
+            if position_code in position_codes:
+                return item
+        return None
+
+    @staticmethod
+    def _songIdsFromRecommendValue(value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, int):
+            return [str(value)]
+        if isinstance(value, list):
+            result: list[str] = []
+            for item in value:
+                result.extend(NeteaseCloudMusicBackend._songIdsFromRecommendValue(item))
+            return list(dict.fromkeys(result))
+        if not isinstance(value, str):
+            return []
+
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return [text] if text.isdigit() else []
+        return NeteaseCloudMusicBackend._songIdsFromRecommendValue(parsed)
+
+    def _songIdsFromRecommendItem(self, item: dict[str, Any]) -> list[str]:
+        result = self._songIdsFromRecommendValue(item.get('resourceId'))
+        if result:
+            return result
+
+        target_url = item.get('targetUrl')
+        if not isinstance(target_url, str):
+            return []
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(target_url).query)
+        result = []
+        for value in query.get('sourceId', []):
+            result.extend(self._songIdsFromRecommendValue(value))
+        return list(dict.fromkeys(result))
 
     def searchSong(
         self, keywords: str, offset: int = 0, limit: int = 30
@@ -316,6 +412,54 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                 storable = self._songStorableFromApiSong(song)
                 if storable is not None:
                     result.append(storable)
+            return result
+
+    def getPrivateRadarSongs(self) -> list[SongStorable]:
+        with pyncm.getCurrentSession():
+            item = self._findPcRecommendItem(
+                module_types={'radar'},
+                cover_texts={'私人雷达'},
+                resource_types=set(),
+                position_codes={'radar'},
+            )
+            if item is None:
+                return []
+            playlist_id = item.get('resourceId')
+            if playlist_id is None:
+                return []
+            response = apis.playlist.getPlaylistInfoEapi(playlist_id)
+            assert isinstance(response, dict), 'Invalid Response'
+            assert response.get('code') == 200, f'API Error: {response}'
+            playlist = response.get('playlist') or {}
+            if not isinstance(playlist, dict):
+                return []
+            return self._songsFromApiSongs(playlist.get('tracks') or [])
+
+    def getSimilarFMSongs(self) -> list[SongStorable]:
+        with pyncm.getCurrentSession():
+            item = self._findPcRecommendItem(
+                module_types={'song_fm'},
+                cover_texts={'相似歌曲'},
+                resource_types={'similarSong'},
+                position_codes={'song_fm'},
+            )
+            if item is None:
+                return []
+            seed_ids = self._songIdsFromRecommendItem(item)
+            if not seed_ids:
+                return []
+
+            result: list[SongStorable] = []
+            seen_ids: set[str] = set()
+            for seed_id in seed_ids:
+                response = apis.recommend.getSimilarSongs(seed_id)
+                assert isinstance(response, dict), 'Invalid Response'
+                assert response.get('code') == 200, f'API Error: {response}'
+                for song in self._songsFromApiSongs(response.get('songs') or []):
+                    if song.id in seen_ids:
+                        continue
+                    seen_ids.add(song.id)
+                    result.append(song)
             return result
 
     def recordPlayed(self, song_id: str, song_name: str, time: float):

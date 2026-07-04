@@ -32,6 +32,18 @@ def getPlaylistInfo(playlist_id, offset=0, total=True, limit=1000) -> dict:
     )
 
 
+def getPlaylistInfoEapi(playlist_id, n=100000, s=8) -> dict:
+    """get playlist detail (pc client api)."""
+    return eapi(
+        '/eapi/v6/playlist/detail',
+        {
+            'id': str(playlist_id),
+            'n': str(n),
+            's': str(s),
+        },
+    )
+
+
 def getPlaylistAllTracks(playlist_id, offset=0, limit=1000) -> dict:
     """get all tracks from a playlist.
 

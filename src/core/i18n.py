@@ -477,7 +477,7 @@ TRANSLATIONS: dict[str, list[str]] = {
     'home_page.welcome_back': ['Welcome back,', '欢迎回来，'],
     'home_page.heart_mode': ['HeartBeat Mode', '心动模式'],
     'home_page.heart_mode_subtitle': [
-        'Start from your music that under your feet and keep the feeling going.',
+        'From the song beneath your feet, catch the next one that moves your heart.',
         '从脚下的音乐出发，接住下一首心动。',
     ],
     'home_page.heart_mode_hint': ['Click to start', '点击开启'],
@@ -499,7 +499,7 @@ TRANSLATIONS: dict[str, list[str]] = {
     ],
     'home_page.private_roam': ['Private Roam', '私人漫游'],
     'home_page.private_roam_subtitle': [
-        'Start a personal radio flow from your taste.',
+        'Roam through your taste — every next song, a new surprise.',
         '丈量你的口味，给你下一首的惊喜。',
     ],
     'home_page.private_roam_hint': ['Click to roam', '点击漫游'],
@@ -514,6 +514,42 @@ TRANSLATIONS: dict[str, list[str]] = {
     'home_page.private_roam_failed': [
         'Failed to start Private Roam.',
         '私人漫游启动失败。',
+    ],
+    'home_page.private_radar': ['Private Radar', '私人雷达'],
+    'home_page.private_radar_subtitle': [
+        'Light up today from the songs that keep finding you.',
+        '从反复撞见你的旋律里，点亮今天的雷达。',
+    ],
+    'home_page.private_radar_hint': ['Click to scan', '点击扫描'],
+    'home_page.private_radar_login_required': [
+        'Please log in before starting Private Radar.',
+        '登录后才能开启 私人雷达。',
+    ],
+    'home_page.private_radar_empty': [
+        'Private Radar returned no songs.',
+        '私人雷达暂时没有拿到歌曲。',
+    ],
+    'home_page.private_radar_failed': [
+        'Failed to start Private Radar.',
+        '私人雷达启动失败。',
+    ],
+    'home_page.similar_songs': ['Similar Songs', '相似歌曲'],
+    'home_page.similar_songs_subtitle': [
+        'Start from a familiar song, then drift into nearby melodies.',
+        '从熟悉的一首歌出发，漂进相近的旋律。',
+    ],
+    'home_page.similar_songs_hint': ['Click to discover', '点击发现'],
+    'home_page.similar_songs_login_required': [
+        'Please log in before starting Similar Songs.',
+        '登录后才能开启 相似歌曲。',
+    ],
+    'home_page.similar_songs_empty': [
+        'Similar Songs returned no songs.',
+        '相似歌曲暂时没有拿到歌曲。',
+    ],
+    'home_page.similar_songs_failed': [
+        'Failed to start Similar Songs.',
+        '相似歌曲启动失败。',
     ],
     'library_page.title': ['Library', '库'],
     'library_page.number_prefix': ['', '一共'],

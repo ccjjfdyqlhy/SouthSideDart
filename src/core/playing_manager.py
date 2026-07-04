@@ -104,6 +104,8 @@ class PlayingManager:
         self._heart_mode_loading = False
         self.personal_fm = False
         self._personal_fm_loading = False
+        self._private_radar_loading = False
+        self._similar_songs_loading = False
         self.current_index = -1
         self.total_length = 0.0
         self.preloaded = False
@@ -205,6 +207,8 @@ class PlayingManager:
                 f'play_mode={self.play_mode}',
                 f'heart_mode={self.heart_mode}',
                 f'personal_fm={self.personal_fm}',
+                f'private_radar_loading={self._private_radar_loading}',
+                f'similar_songs_loading={self._similar_songs_loading}',
                 f'reserved_next={self._reserved_next is not None}',
                 f'preload_triggered={self._preload_triggered}',
                 f'next_song_audio={self.next_song_audio is not None}',
@@ -358,6 +362,8 @@ class PlayingManager:
         self._heart_mode_loading = False
         self.personal_fm = False
         self._personal_fm_loading = False
+        self._private_radar_loading = False
+        self._similar_songs_loading = False
         self._cancelCrossfadePlayback()
         self.clearPreload()
         self.playlist = playlist
@@ -1248,6 +1254,8 @@ class PlayingManager:
                     self._heart_mode_playlist_id = liked_playlist.id
                     self.personal_fm = False
                     self._personal_fm_loading = False
+                    self._private_radar_loading = False
+                    self._similar_songs_loading = False
                     self._cancelCrossfadePlayback()
                     self.clearPreload()
                     self.playlist = songs
@@ -1298,6 +1306,8 @@ class PlayingManager:
                     self._heart_mode_playlist_id = None
                     self._heart_mode_loading = False
                     self.personal_fm = True
+                    self._private_radar_loading = False
+                    self._similar_songs_loading = False
                     self._cancelCrossfadePlayback()
                     self.clearPreload()
                     self.playlist = songs
@@ -1320,6 +1330,120 @@ class PlayingManager:
             (),
             self._mwindow_obj,
             finished=lambda: setattr(self, '_personal_fm_loading', False),
+        )
+
+    def startPrivateRadar(self) -> None:
+        if self._private_radar_loading:
+            return
+        self._private_radar_loading = True
+
+        def _emit_error(title: str, message: str) -> None:
+            self._schedule(self._emitError, title, message)
+
+        def _load() -> None:
+            try:
+                backend = getBackend()
+                if not backend.loggedIn():
+                    _emit_error(
+                        tr('home_page.private_radar'),
+                        tr('home_page.private_radar_login_required'),
+                    )
+                    return
+
+                songs = backend.getPrivateRadarSongs()
+                if not songs:
+                    _emit_error(
+                        tr('home_page.private_radar'),
+                        tr('home_page.private_radar_empty'),
+                    )
+                    return
+
+                def _apply() -> None:
+                    self.heart_mode = False
+                    self._heart_mode_playlist_id = None
+                    self._heart_mode_loading = False
+                    self.personal_fm = False
+                    self._personal_fm_loading = False
+                    self._similar_songs_loading = False
+                    self._cancelCrossfadePlayback()
+                    self.clearPreload()
+                    self.playlist = songs
+                    self.refreshRandom()
+                    self.clearReservedNext()
+                    self.current_index = 0
+                    event_bus.emit(PLAYLIST_CHANGED)
+                    self.playSongAtIndex(0)
+
+                self._schedule(_apply)
+            except Exception as e:
+                self._logger.exception(e)
+                _emit_error(
+                    tr('home_page.private_radar'),
+                    tr('home_page.private_radar_failed'),
+                )
+
+        asyncTask(
+            _load,
+            (),
+            self._mwindow_obj,
+            finished=lambda: setattr(self, '_private_radar_loading', False),
+        )
+
+    def startSimilarSongs(self) -> None:
+        if self._similar_songs_loading:
+            return
+        self._similar_songs_loading = True
+
+        def _emit_error(title: str, message: str) -> None:
+            self._schedule(self._emitError, title, message)
+
+        def _load() -> None:
+            try:
+                backend = getBackend()
+                if not backend.loggedIn():
+                    _emit_error(
+                        tr('home_page.similar_songs'),
+                        tr('home_page.similar_songs_login_required'),
+                    )
+                    return
+
+                songs = backend.getSimilarFMSongs()
+                if not songs:
+                    _emit_error(
+                        tr('home_page.similar_songs'),
+                        tr('home_page.similar_songs_empty'),
+                    )
+                    return
+
+                def _apply() -> None:
+                    self.heart_mode = False
+                    self._heart_mode_playlist_id = None
+                    self._heart_mode_loading = False
+                    self.personal_fm = False
+                    self._personal_fm_loading = False
+                    self._private_radar_loading = False
+                    self._cancelCrossfadePlayback()
+                    self.clearPreload()
+                    self.playlist = songs
+                    self.refreshRandom()
+                    self.clearReservedNext()
+                    self.current_index = 0
+                    event_bus.emit(PLAYLIST_CHANGED)
+                    self.playSongAtIndex(0)
+
+                self._schedule(_apply)
+            except Exception as e:
+                self._logger.exception(e)
+                _emit_error(
+                    tr('home_page.similar_songs'),
+                    tr('home_page.similar_songs_failed'),
+                )
+
+        asyncTask(
+            _load,
+            (),
+            self._mwindow_obj,
+            finished=lambda: setattr(self, '_similar_songs_loading', False),
         )
 
     def _storable_asset_missing(self, song_storable: SongStorable) -> tuple[bool, bool]:
