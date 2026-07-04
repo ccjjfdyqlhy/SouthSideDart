@@ -497,6 +497,24 @@ TRANSLATIONS: dict[str, list[str]] = {
         'Failed to start HeartBeat Mode.',
         '心动模式启动失败。',
     ],
+    'home_page.private_roam': ['Private Roam', '私人漫游'],
+    'home_page.private_roam_subtitle': [
+        'Start a personal radio flow from your taste.',
+        '从你的口味出发，漫游下一首惊喜。',
+    ],
+    'home_page.private_roam_hint': ['Click to roam', '点击漫游'],
+    'home_page.private_roam_login_required': [
+        'Please log in before starting Private Roam.',
+        '登录后才能开启 私人漫游。',
+    ],
+    'home_page.private_roam_empty': [
+        'Private Roam returned no songs.',
+        '私人漫游暂时没有拿到歌曲。',
+    ],
+    'home_page.private_roam_failed': [
+        'Failed to start Private Roam.',
+        '私人漫游启动失败。',
+    ],
     'library_page.title': ['Library', '库'],
     'library_page.number_prefix': ['', '一共'],
     'library_page.number_suffix': ['songs in total', '首'],

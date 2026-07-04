@@ -11,14 +11,9 @@ from imports import (
     VIEW_FOLDER,
     CardWidget,
     IndeterminateProgressBar,
-    QColor,
     QLabel,
     QHBoxLayout,
-    QLinearGradient,
     QMouseEvent,
-    QPaintEvent,
-    QPainter,
-    QPainterPath,
     QSizePolicy,
     QSpacerItem,
     QTimer,
@@ -82,10 +77,60 @@ class HeartModeCard(CardWidget):
             QTimer.singleShot(1800, self.restoreStatus)
             self.ctx.playing_manager.startHeartMode()
         return super().mousePressEvent(event)
-    
+
     def restoreStatus(self):
         self.setEnabled(True)
         self.inde_bar.hide()
+
+
+class PrivateRoamCard(CardWidget):
+    def __init__(self, ctx: 'AppContext'):
+        super().__init__()
+        self.ctx = ctx
+        self.setFixedSize(220, 120)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title = SubtitleLabel('')
+        bindText(title, 'home_page.private_roam')
+        title.setStyleSheet('color: white; font-weight: 700;')
+        title_row.addWidget(title)
+        title_row.addStretch()
+        layout.addLayout(title_row)
+
+        subtitle = QLabel('')
+        bindText(subtitle, 'home_page.private_roam_subtitle')
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet('color: rgba(255,255,255,210); font-size: 13px;')
+        layout.addWidget(subtitle)
+        layout.addStretch()
+
+        hint = QLabel('')
+        bindText(hint, 'home_page.private_roam_hint')
+        hint.setStyleSheet('color: rgba(255,255,255,170); font-size: 12px;')
+        layout.addWidget(hint)
+
+        self.inde_bar = IndeterminateProgressBar()
+        self.inde_bar.hide()
+        layout.addWidget(self.inde_bar)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setEnabled(False)
+            self.inde_bar.show()
+            QTimer.singleShot(1800, self.restoreStatus)
+            self.ctx.playing_manager.startPersonalFM()
+        return super().mousePressEvent(event)
+
+    def restoreStatus(self) -> None:
+        self.setEnabled(True)
+        self.inde_bar.hide()
+
 
 class HomePage(SScrollArea):
     def __init__(self, ctx: 'AppContext'):
@@ -132,8 +177,14 @@ class HomePage(SScrollArea):
 
         right_layout = QVBoxLayout()
 
+        mode_cards_layout = QHBoxLayout()
+        mode_cards_layout.setSpacing(12)
         self.heart_mode_card = HeartModeCard(self.ctx)
-        right_layout.addWidget(self.heart_mode_card)
+        self.private_roam_card = PrivateRoamCard(self.ctx)
+        mode_cards_layout.addWidget(self.heart_mode_card)
+        mode_cards_layout.addWidget(self.private_roam_card)
+        mode_cards_layout.addStretch()
+        right_layout.addLayout(mode_cards_layout)
 
         hbox = QHBoxLayout()
         hbox.setSpacing(12)

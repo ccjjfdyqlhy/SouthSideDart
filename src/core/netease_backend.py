@@ -304,6 +304,20 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                     result.append(storable)
             return result
 
+    def getPersonalFMSongs(self) -> list[SongStorable]:
+        with pyncm.getCurrentSession():
+            response = apis.radio.getPersonalFM()
+            assert isinstance(response, dict), 'Invalid Response'
+            assert response.get('code') == 200, f'API Error: {response}'
+            result: list[SongStorable] = []
+            for song in response.get('data') or []:
+                if not isinstance(song, dict):
+                    continue
+                storable = self._songStorableFromApiSong(song)
+                if storable is not None:
+                    result.append(storable)
+            return result
+
     def recordPlayed(self, song_id: str, song_name: str, time: float):
         apis.user.setWeblog(
             {

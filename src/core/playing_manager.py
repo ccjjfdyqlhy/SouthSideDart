@@ -102,6 +102,8 @@ class PlayingManager:
         self.heart_mode = False
         self._heart_mode_playlist_id: str | None = None
         self._heart_mode_loading = False
+        self.personal_fm = False
+        self._personal_fm_loading = False
         self.current_index = -1
         self.total_length = 0.0
         self.preloaded = False
@@ -201,6 +203,8 @@ class PlayingManager:
                 f'current_song={self.current_song.name if self.current_song else None}',
                 f'gain_cache={len(self._gain_cache)}',
                 f'play_mode={self.play_mode}',
+                f'heart_mode={self.heart_mode}',
+                f'personal_fm={self.personal_fm}',
                 f'reserved_next={self._reserved_next is not None}',
                 f'preload_triggered={self._preload_triggered}',
                 f'next_song_audio={self.next_song_audio is not None}',
@@ -352,6 +356,8 @@ class PlayingManager:
         self.heart_mode = False
         self._heart_mode_playlist_id = None
         self._heart_mode_loading = False
+        self.personal_fm = False
+        self._personal_fm_loading = False
         self._cancelCrossfadePlayback()
         self.clearPreload()
         self.playlist = playlist
@@ -662,6 +668,8 @@ class PlayingManager:
         self._crossfade_play_seq = 0
 
     def _onSongChangedEvent(self, _song_storable: SongStorable) -> None:
+        if self.personal_fm and self.current_index >= len(self.playlist) - 3:
+            self._appendPersonalFMSongsAsync()
         player = self._player
         if player is None or not player.isPlaying():
             return
@@ -871,6 +879,8 @@ class PlayingManager:
     def playNext(self, byuser: bool) -> None:
         if self.heart_mode and self.current_index >= len(self.playlist) - 3:
             self._appendHeartModeSongsAsync()
+        if self.personal_fm and self.current_index >= len(self.playlist) - 3:
+            self._appendPersonalFMSongsAsync()
 
         self._logger.debug(
             f'(Types) {type(self.next_song_audio)=} {type(self.next_song_gain)=}'
@@ -1147,6 +1157,38 @@ class PlayingManager:
             finished=lambda: setattr(self, '_heart_mode_loading', False),
         )
 
+    def _appendPersonalFMSongsAsync(self) -> None:
+        if not self.personal_fm or self._personal_fm_loading:
+            return
+        self._personal_fm_loading = True
+
+        def _load() -> None:
+            try:
+                songs = getBackend().getPersonalFMSongs()
+            except Exception as e:
+                self._logger.exception(e)
+                return
+
+            def _apply() -> None:
+                if not self.personal_fm:
+                    return
+                existing_ids = {str(song.id) for song in self.playlist}
+                added = [song for song in songs if str(song.id) not in existing_ids]
+                if not added:
+                    return
+                self.playlist.extend(added)
+                self.refreshRandom()
+                event_bus.emit(PLAYLIST_CHANGED)
+
+            self._schedule(_apply)
+
+        asyncTask(
+            _load,
+            (),
+            self._mwindow_obj,
+            finished=lambda: setattr(self, '_personal_fm_loading', False),
+        )
+
     def startHeartMode(self) -> None:
         seed = self._heartModeSeed()
 
@@ -1204,6 +1246,8 @@ class PlayingManager:
                 def _apply() -> None:
                     self.heart_mode = True
                     self._heart_mode_playlist_id = liked_playlist.id
+                    self.personal_fm = False
+                    self._personal_fm_loading = False
                     self._cancelCrossfadePlayback()
                     self.clearPreload()
                     self.playlist = songs
@@ -1222,6 +1266,61 @@ class PlayingManager:
                 )
 
         asyncTask(_load, (seed,), self._mwindow_obj)
+
+    def startPersonalFM(self) -> None:
+        if self._personal_fm_loading:
+            return
+        self._personal_fm_loading = True
+
+        def _emit_error(title: str, message: str) -> None:
+            self._schedule(self._emitError, title, message)
+
+        def _load() -> None:
+            try:
+                backend = getBackend()
+                if not backend.loggedIn():
+                    _emit_error(
+                        tr('home_page.private_roam'),
+                        tr('home_page.private_roam_login_required'),
+                    )
+                    return
+
+                songs = backend.getPersonalFMSongs()
+                if not songs:
+                    _emit_error(
+                        tr('home_page.private_roam'),
+                        tr('home_page.private_roam_empty'),
+                    )
+                    return
+
+                def _apply() -> None:
+                    self.heart_mode = False
+                    self._heart_mode_playlist_id = None
+                    self._heart_mode_loading = False
+                    self.personal_fm = True
+                    self._cancelCrossfadePlayback()
+                    self.clearPreload()
+                    self.playlist = songs
+                    self.refreshRandom()
+                    self.clearReservedNext()
+                    self.current_index = 0
+                    event_bus.emit(PLAYLIST_CHANGED)
+                    self.playSongAtIndex(0)
+
+                self._schedule(_apply)
+            except Exception as e:
+                self._logger.exception(e)
+                _emit_error(
+                    tr('home_page.private_roam'),
+                    tr('home_page.private_roam_failed'),
+                )
+
+        asyncTask(
+            _load,
+            (),
+            self._mwindow_obj,
+            finished=lambda: setattr(self, '_personal_fm_loading', False),
+        )
 
     def _storable_asset_missing(self, song_storable: SongStorable) -> tuple[bool, bool]:
         backend = getBackend()

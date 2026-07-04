@@ -96,6 +96,7 @@ from . import (  # noqa: E402
     login as login,
     playmode as playmode,
     playlist as playlist,
+    radio as radio,
     track as track,
     user as user,
     video as video,

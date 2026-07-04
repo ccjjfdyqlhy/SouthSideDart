@@ -699,3 +699,6 @@ class MusicServiceBackend(ABC):
         start_music_id: int | str | None = None,
         count: int = 20,
     ) -> list[SongStorable]: ...
+
+    @abstractmethod
+    def getPersonalFMSongs(self) -> list[SongStorable]: ...
