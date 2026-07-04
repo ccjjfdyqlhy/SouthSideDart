@@ -475,6 +475,28 @@ TRANSLATIONS: dict[str, list[str]] = {
     'home_page.recommend_folders': ['Recommend Folders', '推荐歌单'],
     'home_page.recommend_songs': ['Recommend Songs', '每日推荐'],
     'home_page.welcome_back': ['Welcome back,', '欢迎回来，'],
+    'home_page.heart_mode': ['HeartBeat Mode', '心动模式'],
+    'home_page.heart_mode_subtitle': [
+        'Start from your liked music and keep the feeling going.',
+        '从喜欢的音乐出发，接住下一首心动。',
+    ],
+    'home_page.heart_mode_hint': ['Click to start', '点击开启'],
+    'home_page.heart_mode_login_required': [
+        'Please log in before starting HeartBeat Mode.',
+        '登录后才能开启 心动模式。',
+    ],
+    'home_page.heart_mode_no_seed': [
+        'No song is available to start HeartBeat Mode.',
+        '还没有能用来开启 心动模式的歌曲。',
+    ],
+    'home_page.heart_mode_empty': [
+        'HeartBeat Mode returned no songs.',
+        '心动模式暂时没有拿到歌曲。',
+    ],
+    'home_page.heart_mode_failed': [
+        'Failed to start HeartBeat Mode.',
+        '心动模式启动失败。',
+    ],
     'library_page.title': ['Library', '库'],
     'library_page.number_prefix': ['', '一共'],
     'library_page.number_suffix': ['songs in total', '首'],
@@ -779,7 +801,10 @@ TRANSLATIONS: dict[str, list[str]] = {
     'setting_page.reference': ['Reference', '参考'],
     'setting_page.remain_time_to_skip': ['Remain time to Skip', '跳过检测剩余时间'],
     'setting_page.reset_position': ['Reset Position', '重置位置'],
-    'setting_page.reset_position_easy': ['Move Back to Default Position', '移回默认位置'],
+    'setting_page.reset_position_easy': [
+        'Move Back to Default Position',
+        '移回默认位置',
+    ],
     'setting_page.restart_the_application_to_apply_the_new_lufs': [
         'Restart the application to apply the new LUFS',
         '重启应用以应用新的 LUFS',

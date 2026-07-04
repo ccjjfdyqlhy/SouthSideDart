@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from core.app_context import AppContext
 from core.backend import getBackend
@@ -10,9 +9,16 @@ from imports import (
     PLAYLIST_CHANGED,
     PLAY_STORABLE,
     VIEW_FOLDER,
+    CardWidget,
+    IndeterminateProgressBar,
+    QColor,
     QLabel,
     QHBoxLayout,
+    QLinearGradient,
     QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPainterPath,
     QSizePolicy,
     QSpacerItem,
     QTimer,
@@ -32,6 +38,54 @@ from views.number_viewer import NumberViewer
 from core.downloader import asyncTask
 from views.song_card import CloudFavoriteSongCard
 
+
+class HeartModeCard(CardWidget):
+    def __init__(self, ctx: 'AppContext'):
+        super().__init__()
+        self.ctx = ctx
+        self.setFixedSize(220, 120)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title = SubtitleLabel('')
+        bindText(title, 'home_page.heart_mode')
+        title.setStyleSheet('color: white; font-weight: 700;')
+        title_row.addWidget(title)
+        title_row.addStretch()
+        layout.addLayout(title_row)
+
+        subtitle = QLabel('')
+        bindText(subtitle, 'home_page.heart_mode_subtitle')
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet('color: rgba(255,255,255,210); font-size: 13px;')
+        layout.addWidget(subtitle)
+        layout.addStretch()
+
+        hint = QLabel('')
+        bindText(hint, 'home_page.heart_mode_hint')
+        hint.setStyleSheet('color: rgba(255,255,255,170); font-size: 12px;')
+        layout.addWidget(hint)
+
+        self.inde_bar = IndeterminateProgressBar()
+        self.inde_bar.hide()
+        layout.addWidget(self.inde_bar)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setEnabled(False)
+            self.inde_bar.show()
+            QTimer.singleShot(1800, self.restoreStatus)
+            self.ctx.playing_manager.startHeartMode()
+        return super().mousePressEvent(event)
+    
+    def restoreStatus(self):
+        self.setEnabled(True)
+        self.inde_bar.hide()
 
 class HomePage(SScrollArea):
     def __init__(self, ctx: 'AppContext'):
@@ -78,6 +132,9 @@ class HomePage(SScrollArea):
 
         right_layout = QVBoxLayout()
 
+        self.heart_mode_card = HeartModeCard(self.ctx)
+        right_layout.addWidget(self.heart_mode_card)
+
         hbox = QHBoxLayout()
         hbox.setSpacing(12)
         title_label = SubtitleLabel('')
@@ -87,7 +144,7 @@ class HomePage(SScrollArea):
             self.ctx.harmony_font_family, self.ctx, 15, 1.3
         )
         hbox.addWidget(self.songs_counter)
-        self.recommend_songs_layout = SFlowLayout(yAnimations=True)
+        self.recommend_songs_layout = SFlowLayout(yAnimations=False)
         self.recommend_songs_layout.setAnimation(300)
         right_layout.addLayout(hbox)
         right_layout.addLayout(self.recommend_songs_layout)
@@ -178,7 +235,7 @@ class HomePage(SScrollArea):
                 card.queued.connect(self._queueSong)
                 self.recommend_songs_layout.insertWidget(0, card)
 
-                QTimer.singleShot(50, add)
+                QTimer.singleShot(20, add)
 
             self.ctx.addScheduledTask(
                 lambda: self.songs_counter.setText(str(len(songs)))

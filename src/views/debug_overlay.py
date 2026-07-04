@@ -4,11 +4,33 @@ import time
 
 import psutil
 
-from imports import REPAINT, QHideEvent, QMouseEvent, QPainterPath, QPen, QPoint, QRect, QShowEvent, QTimer, QWidget, QFont, QFontMetricsF, Qt, QWheelEvent, QPainter, QColor, event_bus
+from imports import (
+    REPAINT,
+    QHideEvent,
+    QMouseEvent,
+    QPainterPath,
+    QPen,
+    QPoint,
+    QRect,
+    QShowEvent,
+    QTimer,
+    QWidget,
+    QFont,
+    QFontMetricsF,
+    Qt,
+    QWheelEvent,
+    QPainter,
+    QColor,
+    event_bus,
+)
 from core.app_context import AppContext
-from core.lyric_video_export import lyricVideoExportDebugInfo, lyricVideoExportDebugProcessPids
+from core.lyric_video_export import (
+    lyricVideoExportDebugInfo,
+    lyricVideoExportDebugProcessPids,
+)
 from core.smooth import EaseOutTimer
 from core import theme
+
 
 class DebugOverlay(QWidget):
     def __init__(self, ctx: AppContext, parent: QWidget) -> None:
@@ -38,7 +60,7 @@ class DebugOverlay(QWidget):
         self.last_wall: dict[int, float] = {}
         self.cmax_value: EaseOutTimer = EaseOutTimer(1, 2)
         self.tracked_pids: dict[str, set[int]] = {}
-        
+
         self.raise_timer = QTimer(self)
         self.raise_timer.timeout.connect(self.tryRaise)
 
@@ -128,16 +150,13 @@ class DebugOverlay(QWidget):
     def updateMemories(self, pids: dict[str, int]) -> None:
         if not self.ctx.debugging:
             return
-        
+
         for name, pid in pids.items():
             if not self.mem_datas.get(name):
                 self.mem_datas[name] = deque(maxlen=200)
             try:
                 processes = self._trackedProcesses(name, pid)
-                rss = sum(
-                    process.memory_info().rss
-                    for process in processes
-                )
+                rss = sum(process.memory_info().rss for process in processes)
                 self.mem_datas[name].append(rss)
             except psutil.Error:
                 continue
@@ -151,7 +170,7 @@ class DebugOverlay(QWidget):
     def updateCpus(self, pids: dict[str, int]) -> None:
         if not self.ctx.debugging:
             return
-        
+
         for name, pid in pids.items():
             if not self.cpu_datas.get(name):
                 self.cpu_datas[name] = deque(maxlen=200)
@@ -173,7 +192,9 @@ class DebugOverlay(QWidget):
             elapsed = max(now - self.last_wall.get(pid, 0.0), 0.001)
             cpu_percent = cpu_delta / elapsed / self.cpu_cores * 100
             self.cpu_smoothed[name].append(cpu_percent)
-            self.cpu_datas[name].append(sum(self.cpu_smoothed[name]) / len(self.cpu_smoothed[name]))
+            self.cpu_datas[name].append(
+                sum(self.cpu_smoothed[name]) / len(self.cpu_smoothed[name])
+            )
             self.last_wall[pid] = now
 
         max_v = 0
@@ -186,7 +207,9 @@ class DebugOverlay(QWidget):
         self.offset_timer.target_value += event.angleDelta().y()
         return super().wheelEvent(event)
 
-    def refresh(self, _multiple_factor: float = 1.0, raise_overlay: bool = False) -> None:
+    def refresh(
+        self, _multiple_factor: float = 1.0, raise_overlay: bool = False
+    ) -> None:
         self.setVisible(self.ctx.debugging)
         if self.ctx.debugging:
             if raise_overlay:
@@ -219,9 +242,7 @@ class DebugOverlay(QWidget):
 
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(
-                QColor(255, 255, 255, 100)
-                if theme.isLight()
-                else QColor(0, 0, 0, 100)
+                QColor(255, 255, 255, 100) if theme.isLight() else QColor(0, 0, 0, 100)
             )
 
             y = 0
@@ -234,10 +255,10 @@ class DebugOverlay(QWidget):
                 self.width(),
                 self.height(),
             )
-            painter.drawRect(mem_rect) # make the
-            painter.drawRect(mem_rect) # color darker
-            painter.drawRect(cpu_rect) # make the
-            painter.drawRect(cpu_rect) # color darker
+            painter.drawRect(mem_rect)  # make the
+            painter.drawRect(mem_rect)  # color darker
+            painter.drawRect(cpu_rect)  # make the
+            painter.drawRect(cpu_rect)  # color darker
 
             painter.setPen(
                 QPen(
@@ -261,7 +282,7 @@ class DebugOverlay(QWidget):
                         x = 5 + (self.width() - 10) * (i / 200)
                         y_ = v / mem_max * -200 - 15
                         path.lineTo(x, y_)
-                    txt = f'{name} - {(values[-1] / 1024/ 1024):.2f} MB'
+                    txt = f'{name} - {(values[-1] / 1024 / 1024):.2f} MB'
                     painter.drawText(
                         int(
                             max(

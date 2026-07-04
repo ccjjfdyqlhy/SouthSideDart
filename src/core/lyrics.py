@@ -123,6 +123,24 @@ class YRCLyricParser:
     def hasYrcTiming(self) -> bool:
         return self._has_yrc_timing
 
+    def setParsed(
+        self,
+        parsed: list[YRCLyricInfo],
+        cur: str | None = None,
+        has_yrc_timing: bool | None = None,
+    ) -> None:
+        self._getOffsetedLyric.cache_clear()
+        self._getCurrentLyric.cache_clear()
+        self._getCurrentLyricIndex.cache_clear()
+        if cur is not None:
+            self.cur = cur
+        self.parsed = sorted(parsed, key=lambda x: x.time)
+        self._has_yrc_timing = (
+            any(line.chars for line in self.parsed)
+            if has_yrc_timing is None
+            else has_yrc_timing
+        )
+
     def getCurrentLyric(self, time: float) -> YRCLyricInfo:
         return self._getCurrentLyric(time)
 
@@ -226,6 +244,21 @@ class LRCLyricParser:
         self.parsed: list[LyricInfo] = []
         self.empty_times: list[float] = []
         self.version: int = 0
+
+    def setParsed(
+        self,
+        parsed: list[LyricInfo],
+        cur: str | None = None,
+        empty_times: list[float] | None = None,
+    ) -> None:
+        self._getOffsetedLyric.cache_clear()
+        self._getCurrentLyric.cache_clear()
+        self._getCurrentLyricIndex.cache_clear()
+        if cur is not None:
+            self.cur = cur
+        self.parsed = sorted(parsed, key=lambda x: x.time)
+        self.empty_times = list(empty_times or [])
+        self.version += 1
 
     def getCurrentLyric(self, time: float) -> LyricInfo:
         return self._getCurrentLyric(time)

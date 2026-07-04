@@ -27,6 +27,31 @@ _logger = logging.getLogger(__name__)
 
 
 class NeteaseCloudMusicBackend(MusicServiceBackend):
+    def _songStorableFromApiSong(self, song: dict[str, Any]) -> SongStorable | None:
+        if not song:
+            return None
+        song_id = song.get('id')
+        if song_id is None:
+            return None
+        artists_raw = song.get('ar', song.get('artists', []))
+        cached = getCachedHashes(str(song_id))
+        return SongStorable(
+            info=SongInfo(
+                name=str(song.get('name', '')),
+                artists=[
+                    ArtistInfo(id=obj.get('id', 0), name=obj.get('name', ''))
+                    for obj in artists_raw
+                    if isinstance(obj, dict)
+                ],
+                id=str(song_id),
+                privilege=int(song.get('fee', -1) or -1),
+                duration=int(song.get('dt', song.get('duration', 0)) or 0),
+            ),
+            image=None,
+            image_cache_hash=cached.get('image_cache_hash', ''),
+            content_cache_hash=cached.get('content_cache_hash', ''),
+        )
+
     def searchSong(
         self, keywords: str, offset: int = 0, limit: int = 30
     ) -> list[SearchSongInfo]:
@@ -165,9 +190,20 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                     image_url=p['coverImgUrl'],
                     id=str(p['id']),
                     song_count=p.get('trackCount'),
+                    special_type=p.get('specialType'),
                 )
                 for p in data
             ]
+
+    def getLikedPlaylist(self) -> CloudFolderInfo | None:
+        playlists = self.getUserPlaylists()
+        for folder in playlists:
+            if folder.special_type == 5:
+                return folder
+        for folder in playlists:
+            if folder.folder_name in ('我喜欢的音乐', 'I Like Music'):
+                return folder
+        return playlists[0] if playlists else None
 
     def createPlaylist(self, name: str) -> str:
         with pyncm.getCurrentSession():
@@ -203,23 +239,9 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             songs = response['songs']  # type: ignore
             result: list[SongStorable] = []
             for s in songs:
-                cached = getCachedHashes(str(s['id']))
-                storable = SongStorable(
-                    info=SongInfo(
-                        name=s['name'],
-                        artists=[
-                            ArtistInfo(id=obj['id'], name=obj['name'])
-                            for obj in s.get('ar', [])
-                        ],
-                        id=str(s['id']),
-                        privilege=-1,
-                        duration=s.get('dt', 0),
-                    ),
-                    image=None,
-                    image_cache_hash=cached.get('image_cache_hash', ''),
-                    content_cache_hash=cached.get('content_cache_hash', ''),
-                )
-                result.append(storable)
+                storable = self._songStorableFromApiSong(s)
+                if storable is not None:
+                    result.append(storable)
             return result
 
     def getUserVipType(self) -> int | str:
@@ -230,28 +252,12 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             response = apis.user.getDailyRecommend()
             assert isinstance(response, dict), 'Invalid Response'
             assert response.get('code') == 200, f'API Error: {response}'
-            return [
-                SongStorable(
-                    info=SongInfo(
-                        name=obj['name'],
-                        artists=[
-                            ArtistInfo(id=a['id'], name=a['name'])
-                            for a in obj['artists']
-                        ],
-                        id=obj['id'],
-                        privilege=obj['fee'],
-                        duration=obj['duration'],
-                    ),
-                    image=None,
-                    image_cache_hash=getCachedHashes(str(obj['id'])).get(
-                        'image_cache_hash', ''
-                    ),
-                    content_cache_hash=getCachedHashes(str(obj['id'])).get(
-                        'content_cache_hash', ''
-                    ),
-                )
-                for obj in response['recommend']
-            ]
+            result: list[SongStorable] = []
+            for obj in response['recommend']:
+                storable = self._songStorableFromApiSong(obj)
+                if storable is not None:
+                    result.append(storable)
+            return result
 
     def getDailyRecommendFolders(self) -> list[CloudFolderInfo]:
         with pyncm.getCurrentSession():
@@ -264,9 +270,39 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                     image_url=obj.get('picUrl', ''),
                     id=str(obj['id']),
                     song_count=obj.get('trackCount'),
+                    special_type=obj.get('specialType'),
                 )
                 for obj in response.get('recommend') or []
             ]
+
+    def getHeartModeSongs(
+        self,
+        seed_song_id: int | str,
+        playlist_id: int | str,
+        start_music_id: int | str | None = None,
+        count: int = 20,
+    ) -> list[SongStorable]:
+        with pyncm.getCurrentSession():
+            response = apis.playmode.getIntelligenceList(
+                seed_song_id,
+                playlist_id,
+                start_music_id,
+                count,
+            )
+            assert isinstance(response, dict), 'Invalid Response'
+            assert response.get('code') == 200, f'API Error: {response}'
+            data = response.get('data') or []
+            result: list[SongStorable] = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                song = item.get('songInfo') or item.get('song') or item
+                if not isinstance(song, dict):
+                    continue
+                storable = self._songStorableFromApiSong(song)
+                if storable is not None:
+                    result.append(storable)
+            return result
 
     def recordPlayed(self, song_id: str, song_name: str, time: float):
         apis.user.setWeblog(

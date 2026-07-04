@@ -138,7 +138,7 @@ def lyricVideoExportDebugInfo() -> list[str]:
         mode = str(_EXPORT_DEBUG_INFO.get('mode', 'idle'))
         frames = str(_EXPORT_DEBUG_INFO.get('frames', '0/0'))
         workers = str(_EXPORT_DEBUG_INFO.get('workers', '0'))
-        fps = float(_EXPORT_DEBUG_INFO.get('fps', 0.0)) # type: ignore
+        fps = float(_EXPORT_DEBUG_INFO.get('fps', 0.0))  # type: ignore
         return [
             f'mode: {mode}',
             f'workers: {workers}',
@@ -577,7 +577,9 @@ def _startSegmentWorker(
     env['PYTHONIOENCODING'] = 'utf-8'
     old_pythonpath = env.get('PYTHONPATH', '')
     env['PYTHONPATH'] = (
-        str(src_dir) if not old_pythonpath else str(src_dir) + os.pathsep + old_pythonpath
+        str(src_dir)
+        if not old_pythonpath
+        else str(src_dir) + os.pathsep + old_pythonpath
     )
     creationflags = 0
     if os.name == 'nt' and hasattr(subprocess, 'CREATE_NO_WINDOW'):
@@ -658,7 +660,9 @@ def _mergeSegments(
     frame_count: int,
     progress_callback: Callable[[LyricVideoExportProgress], None] | None,
 ) -> None:
-    command = _buildFfmpegConcatCommand(ffmpeg, concat_file, sources, options, output_path)
+    command = _buildFfmpegConcatCommand(
+        ffmpeg, concat_file, sources, options, output_path
+    )
     _logger.info('merge lyric video segments with ffmpeg: %s', command)
     _runFfmpegProgressCommand(
         command,
@@ -802,7 +806,9 @@ class _LyricVideoRenderer:
             list(self.yrc.parsed) if self.use_yrc else list(self.lrc.parsed)
         )
         self.times = [line.time for line in self.lines]
-        self.display_line_count = _normalizedDisplayLineCount(options.display_line_count)
+        self.display_line_count = _normalizedDisplayLineCount(
+            options.display_line_count
+        )
         self.video_height = _videoHeightForLineCount(self.display_line_count)
 
         self.primary_font = QFont(sources.font_family, 54)
@@ -836,7 +842,10 @@ class _LyricVideoRenderer:
         return max(1, int(math.ceil(duration * _VIDEO_FPS)))
 
     def renderFrame(self, position: float) -> QImage:
-        if self._last_render_position is not None and position < self._last_render_position:
+        if (
+            self._last_render_position is not None
+            and position < self._last_render_position
+        ):
             self._resetAnimationState()
         image = QImage(_VIDEO_WIDTH, self.video_height, QImage.Format.Format_RGB888)
         image.fill(self.options.background_color)
@@ -844,8 +853,7 @@ class _LyricVideoRenderer:
         painter = QPainter(image)
         try:
             painter.setRenderHints(
-                QPainter.RenderHint.Antialiasing
-                | QPainter.RenderHint.TextAntialiasing
+                QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
             )
             self._drawLyrics(painter, position)
         finally:
@@ -893,7 +901,11 @@ class _LyricVideoRenderer:
         text_x = self._textX(text_width, is_current, line, position)
         clip_rect = QRect(120, 0, _VIDEO_WIDTH - 240, self.video_height)
 
-        if self.options.x_axis_animation and is_current and text_width > clip_rect.width():
+        if (
+            self.options.x_axis_animation
+            and is_current
+            and text_width > clip_rect.width()
+        ):
             painter.save()
             painter.setClipRect(clip_rect)
             self._drawPrimaryText(
@@ -989,10 +1001,9 @@ class _LyricVideoRenderer:
 
     def _lineStep(self, has_translation: bool) -> float:
         if has_translation:
-            return (
-                self.primary_metrics.height() * (1.85 - (0.1 * self.translation_progress))
-                + (self.translation_metrics.height() * self.translation_progress)
-            )
+            return self.primary_metrics.height() * (
+                1.85 - (0.1 * self.translation_progress)
+            ) + (self.translation_metrics.height() * self.translation_progress)
         return self.primary_metrics.height() * 1.85
 
     def _currentLineBaseline(self, has_translation: bool = False) -> float:
@@ -1182,9 +1193,7 @@ class _LyricVideoRenderer:
                 foreground = QColor(255, 255, 255)
             else:
                 foreground = (
-                    QColor(255, 255, 255)
-                    if self.sources.is_dark
-                    else QColor(0, 0, 0)
+                    QColor(255, 255, 255) if self.sources.is_dark else QColor(0, 0, 0)
                 )
         else:
             foreground = (
@@ -1500,12 +1509,14 @@ def _ensureWorkerApplication() -> QApplication:
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
-    font_path = Path(__file__).resolve().parents[2] / 'fonts' / (
-        'HARMONYOS_SANS_SC_REGULAR.ttf'
+    font_path = (
+        Path(__file__).resolve().parents[2]
+        / 'fonts'
+        / ('HARMONYOS_SANS_SC_REGULAR.ttf')
     )
     if font_path.is_file():
         QFontDatabase.addApplicationFont(str(font_path))
-    return app # type: ignore
+    return app  # type: ignore
 
 
 def _dictPayload(payload: object) -> dict[str, Any]:
@@ -1772,7 +1783,7 @@ def _qimageBytes(image: QImage) -> bytes:
 def _imageToBase64(image: QImage) -> str:
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, 'PNG') # type: ignore
+    image.save(buffer, 'PNG')  # type: ignore
     data = buffer.data().data()
     buffer.close()
     return base64.b64encode(data).decode('ascii')
@@ -1783,7 +1794,7 @@ def _imageFromBase64(data: str) -> QImage | None:
         return None
     try:
         image = QImage()
-        image.loadFromData(base64.b64decode(data), 'PNG') # type: ignore
+        image.loadFromData(base64.b64decode(data), 'PNG')  # type: ignore
     except Exception:
         return None
     return image if not image.isNull() else None

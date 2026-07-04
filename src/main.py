@@ -66,6 +66,7 @@ hijackStreams()
 
 _logger = logging.getLogger('main')
 
+
 def atExitListener():
     logging.info('exiting by listener')
 
@@ -93,7 +94,9 @@ def atExitListener():
 
     ctx.app.quit()
 
+
 atexit.register(atExitListener)
+
 
 def patchedExceptHook(
     exc_type: type[BaseException],
@@ -457,7 +460,7 @@ if __name__ == '__main__':
         ctx.library_page = lrp
 
         ctx.process_pids['main'] = os.getpid()
-        
+
         launchwindow.push('Initializing main window...')
         mwindow = MainWindow(ctx)
         ctx.main_window = mwindow

@@ -19,6 +19,7 @@ CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.json')
 LEGACY_PICKLE_CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.pkl')
 SECRET_PREFIX = 'win32crypt:'
 
+
 def _configToJsonObject() -> dict[str, Any]:
     data = _instance.__dict__.copy()
     data['last_playlist'] = [
@@ -29,11 +30,13 @@ def _configToJsonObject() -> dict[str, Any]:
     data.pop('last_playing_song', None)
     return data
 
+
 def saveConfig() -> None:
     if _instance is None:
         return
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(_configToJsonObject(), f, ensure_ascii=False, indent=2)
+
 
 @dataclass
 class Config:
@@ -131,9 +134,11 @@ class Config:
         global _instance
         return _instance
 
+
 _instance: Config = cast('Config', None)
 Config()
 cfg = Config.instance()
+
 
 def encryptSecret(value: str) -> str:
     if not value:

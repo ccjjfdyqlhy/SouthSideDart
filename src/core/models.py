@@ -47,9 +47,7 @@ def _saveCacheIndex() -> None:
         json.dump(_cache_index or {}, f, ensure_ascii=False, indent=2)
 
 
-def _updateCacheIndex(
-    song_id: str, image_hash: str = '', audio_hash: str = ''
-) -> None:
+def _updateCacheIndex(song_id: str, image_hash: str = '', audio_hash: str = '') -> None:
     global _cache_index
     idx = _loadCacheIndex()
     entry = idx.get(song_id, {})
@@ -570,6 +568,7 @@ class CloudFolderInfo:
     image_url: str
     id: str
     song_count: int | None = None
+    special_type: int | None = None
 
 
 @dataclass
@@ -688,3 +687,15 @@ class MusicServiceBackend(ABC):
 
     @abstractmethod
     def getDailyRecommendFolders(self) -> list[CloudFolderInfo]: ...
+
+    @abstractmethod
+    def getLikedPlaylist(self) -> CloudFolderInfo | None: ...
+
+    @abstractmethod
+    def getHeartModeSongs(
+        self,
+        seed_song_id: int | str,
+        playlist_id: int | str,
+        start_music_id: int | str | None = None,
+        count: int = 20,
+    ) -> list[SongStorable]: ...

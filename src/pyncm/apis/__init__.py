@@ -94,6 +94,7 @@ from . import (  # noqa: E402
     cloud as cloud,
     cloudsearch as cloudsearch,
     login as login,
+    playmode as playmode,
     playlist as playlist,
     track as track,
     user as user,

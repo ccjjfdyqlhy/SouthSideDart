@@ -1371,9 +1371,7 @@ class AudioPlayer(QObject):
         if abs(pitch_ratio - 1.0) >= 1e-6:
             chunk = self._resampleToFrames(chunk, frames)
 
-        src_frames = self._sourceFramesFor(
-            start_idx, intermediate_frames, tempo_speed
-        )
+        src_frames = self._sourceFramesFor(start_idx, intermediate_frames, tempo_speed)
         return chunk, src_frames
 
     def _readSpeedResample(

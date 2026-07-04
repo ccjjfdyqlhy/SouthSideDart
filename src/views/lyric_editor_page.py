@@ -7,6 +7,7 @@ import re
 import time
 
 from core.app_context import AppContext
+from core.lyrics import LyricInfo, YRCCharInfo, YRCLyricInfo
 from core.models import SongStorable
 from imports import (
     PLAY_STATE_CHANGED,
@@ -22,12 +23,12 @@ from imports import (
     Qt,
     QVBoxLayout,
     QWidget,
+    QObject,
     event_bus,
     tr,
 )
 from qfluentwidgets import CaptionLabel, InfoBar, PrimaryPushButton, PushButton
 from views.lyrics_viewer import LyricsViewer
-from views.playing_controller import PlayingController
 
 
 _LRC_TIME_PREFIX_RE = re.compile(r'^(?:\[\d+:\d+[.:]\d+\])+')
@@ -202,7 +203,6 @@ class LyricEditorPage(QWidget):
         self._setBeatActionsVisible(False)
         self._setStatusText('lyric_editor.beat_ready')
         self._syncPreview()
-        self.beat_controller.hideLyrics()
         if self.ctx.main_window and getattr(self.ctx.main_window, 'controller', None):
             self.ctx.main_window.controller.hideLyrics()
         self.global_layout.setCurrentWidget(self.beat_page)
@@ -225,7 +225,9 @@ class LyricEditorPage(QWidget):
         try:
             if not self._persistLyrics(finalize=True, emit_update=True):
                 return
-            if self.ctx.main_window and getattr(self.ctx.main_window, 'controller', None):
+            if self.ctx.main_window and getattr(
+                self.ctx.main_window, 'controller', None
+            ):
                 self.ctx.main_window.controller.showLyrics()
             InfoBar.success(
                 tr('lyric_editor.edit_lyrics'),
@@ -270,10 +272,6 @@ class LyricEditorPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self.edit_controller = PlayingController(self.ctx)
-        self.edit_controller.setFixedHeight(52)
-        layout.addWidget(self.edit_controller)
-
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText(tr('lyric_editor.empty_lyrics'))
         layout.addWidget(self.editor, 1)
@@ -293,10 +291,6 @@ class LyricEditorPage(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-
-        self.beat_controller = PlayingController(self.ctx)
-        self.beat_controller.setFixedHeight(52)
-        layout.addWidget(self.beat_controller)
 
         self.viewer = ManualLyricsViewer(self.ctx)
         layout.addWidget(self.viewer, 1)
@@ -322,7 +316,6 @@ class LyricEditorPage(QWidget):
         self.beat_page.setLayout(layout)
         for widget in (
             self.beat_page,
-            self.beat_controller,
             self.viewer,
             self.back_button,
             self.retry_button,
@@ -330,7 +323,7 @@ class LyricEditorPage(QWidget):
         ):
             widget.installEventFilter(self)
 
-    def eventFilter(self, watched: object, event: QEvent) -> bool:
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if (
             self.global_layout.currentWidget() is self.beat_page
             and event.type() == QEvent.Type.KeyPress
@@ -535,28 +528,26 @@ class LyricEditorPage(QWidget):
         token.duration = _HOLD_STEP_SECONDS
         self._next_token_index += 1
         self._syncPreview()
-        self._persistLyrics(finalize=False, emit_update=False)
         return True
 
     def _syncPreview(self) -> None:
         self._ensureTokenTimings()
         lines = self._lyricLines()
         line_times = self._lineStartTimes(lines)
-        self._current_yrc = self._buildYrc()
-        translated_lyric, ytlrc_lyric = self._buildAlignedTranslations(line_times)
-        self._applyLyricsToContext(
-            self._buildLrc(lines, line_times),
-            translated_lyric,
-            self._current_yrc,
-            ytlrc_lyric,
+        yrc_parsed = self._buildYrcParsed()
+        translated_parsed, ytlrc_parsed = self._buildAlignedTranslationsParsed(
+            line_times
         )
-        self.viewer.prewarmFontMetrics()
+        self._applyParsedLyricsToContext(
+            self._buildLrcParsed(lines, line_times),
+            translated_parsed,
+            yrc_parsed,
+            ytlrc_parsed,
+        )
         self.viewer.setPreviewPosition(self._manual_position)
-        self.beat_controller.lyrics_viewer.prewarmFontMetrics()
 
     def _refreshLyricsViews(self) -> None:
         self.viewer.prewarmFontMetrics()
-        self.beat_controller.lyrics_viewer.prewarmFontMetrics()
         mwindow = self.ctx.main_window
         if mwindow and getattr(mwindow, 'controller', None):
             mwindow.controller.lyrics_viewer.prewarmFontMetrics()
@@ -577,29 +568,58 @@ class LyricEditorPage(QWidget):
         )
         song.writeLyrics(lyric, translated_lyric, yrc_lyric, ytlrc_lyric)
         self._lyrics_cache = song.getLyrics()
-        self._applyLyricsToContext(lyric, translated_lyric, yrc_lyric, ytlrc_lyric)
+        yrc_parsed = self._buildYrcParsed(finalize=finalize)
+        translated_parsed, ytlrc_parsed = self._buildAlignedTranslationsParsed(
+            line_times
+        )
+        self._applyParsedLyricsToContext(
+            self._buildLrcParsed(lines, line_times),
+            translated_parsed,
+            yrc_parsed,
+            ytlrc_parsed,
+            lyric=lyric,
+            translated_lyric=translated_lyric,
+            yrc_lyric=yrc_lyric,
+            ytlrc_lyric=ytlrc_lyric,
+        )
         self._refreshLyricsViews()
         if emit_update:
             event_bus.emit(PLAYBACK_LYRICS_UPDATED, song)
         return True
 
-    def _applyLyricsToContext(
+    def _applyParsedLyricsToContext(
         self,
-        lyric: str,
-        translated_lyric: str,
-        yrc_lyric: str,
-        ytlrc_lyric: str,
+        lyric_parsed: list[LyricInfo],
+        translated_parsed: list[LyricInfo],
+        yrc_parsed: list[YRCLyricInfo],
+        ytlrc_parsed: list[LyricInfo],
+        lyric: str | None = None,
+        translated_lyric: str | None = None,
+        yrc_lyric: str | None = None,
+        ytlrc_lyric: str | None = None,
     ) -> None:
-        self.ctx.mgr.cur = lyric
-        self.ctx.ymgr.cur = yrc_lyric
-        self.ctx.transmgr.cur = self._activeTranslationLyric(
-            translated_lyric,
-            ytlrc_lyric,
-            yrc_lyric,
+        self.ctx.mgr.setParsed(lyric_parsed, cur=lyric)
+        self.ctx.ymgr.setParsed(yrc_parsed, cur=yrc_lyric)
+        self.ctx.transmgr.setParsed(
+            self._activeTranslationParsed(
+                translated_parsed,
+                ytlrc_parsed,
+                yrc_parsed,
+            ),
+            cur=(
+                self._activeTranslationLyric(
+                    translated_lyric or '',
+                    ytlrc_lyric or '',
+                    yrc_lyric or '',
+                )
+                if (
+                    translated_lyric is not None
+                    or ytlrc_lyric is not None
+                    or yrc_lyric is not None
+                )
+                else None
+            ),
         )
-        self.ctx.mgr.parse()
-        self.ctx.transmgr.parse()
-        self.ctx.ymgr.parse()
 
     def _activeTranslationLyric(
         self,
@@ -611,12 +631,33 @@ class LyricEditorPage(QWidget):
             return ytlrc_lyric
         return translated_lyric or ytlrc_lyric
 
+    def _activeTranslationParsed(
+        self,
+        translated_parsed: list[LyricInfo],
+        ytlrc_parsed: list[LyricInfo],
+        yrc_parsed: list[YRCLyricInfo],
+    ) -> list[LyricInfo]:
+        if yrc_parsed and ytlrc_parsed:
+            return ytlrc_parsed
+        return translated_parsed or ytlrc_parsed
+
     def _buildLrc(self, lines: list[str], line_times: list[float]) -> str:
         result: list[str] = []
         for index, line in enumerate(lines):
             time_value = line_times[index] if index < len(line_times) else 0.0
             result.append(f'{_formatLrcTime(float(time_value))}{line}')
         return '\n'.join(result) or '[00:00.000]'
+
+    def _buildLrcParsed(
+        self,
+        lines: list[str],
+        line_times: list[float],
+    ) -> list[LyricInfo]:
+        result: list[LyricInfo] = []
+        for index, line in enumerate(lines):
+            time_value = line_times[index] if index < len(line_times) else 0.0
+            result.append(LyricInfo(time=max(0.0, float(time_value)), content=line))
+        return result
 
     def _lineStartTimes(self, lines: list[str]) -> list[float]:
         self._ensureTokenTimings()
@@ -656,6 +697,21 @@ class LyricEditorPage(QWidget):
             translated_lyric = ytlrc_lyric
         return translated_lyric, ytlrc_lyric
 
+    def _buildAlignedTranslationsParsed(
+        self,
+        line_times: list[float],
+    ) -> tuple[list[LyricInfo], list[LyricInfo]]:
+        translated_parsed = self._buildAlignedParsed(
+            self._translated_lines,
+            line_times,
+        )
+        ytlrc_parsed = self._buildAlignedParsed(self._ytlrc_lines, line_times)
+        if translated_parsed and not ytlrc_parsed:
+            ytlrc_parsed = list(translated_parsed)
+        elif ytlrc_parsed and not translated_parsed:
+            translated_parsed = list(ytlrc_parsed)
+        return translated_parsed, ytlrc_parsed
+
     def _buildAlignedLyric(
         self,
         source_lines: list[str],
@@ -670,6 +726,21 @@ class LyricEditorPage(QWidget):
                 continue
             result.append(f'{_formatLrcTime(line_times[index])}{line}')
         return '\n'.join(result)
+
+    def _buildAlignedParsed(
+        self,
+        source_lines: list[str],
+        line_times: list[float],
+    ) -> list[LyricInfo]:
+        result: list[LyricInfo] = []
+        for index, source_line in enumerate(source_lines):
+            if index >= len(line_times):
+                break
+            line = source_line.strip()
+            if not line:
+                continue
+            result.append(LyricInfo(time=max(0.0, line_times[index]), content=line))
+        return result
 
     def _preserveFallbackTranslations(
         self,
@@ -719,6 +790,33 @@ class LyricEditorPage(QWidget):
             result.append(self._buildYrcLine(token_line, finalize))
         return '\n'.join(result)
 
+    def _buildYrcParsed(self, finalize: bool = False) -> list[YRCLyricInfo]:
+        if not self._flat_tokens or self._next_token_index <= 0:
+            return []
+
+        total_duration = self._songDuration()
+        result: list[YRCLyricInfo] = []
+        for token_index, token in enumerate(self._flat_tokens):
+            if token_index >= self._next_token_index:
+                break
+            if token_index + 1 < self._next_token_index:
+                next_token = self._flat_tokens[token_index + 1]
+                token.duration = max(0.0, next_token.start - token.start)
+            elif finalize:
+                token.duration = max(0.0, total_duration - token.start)
+
+        for token_line in self._token_lines:
+            if not token_line:
+                continue
+            if finalize and not any(
+                token.global_index < self._next_token_index for token in token_line
+            ):
+                continue
+            line = self._buildYrcInfo(token_line, finalize)
+            if line is not None:
+                result.append(line)
+        return result
+
     def _buildYrcLine(
         self,
         tokens: list[LyricTokenTiming],
@@ -747,6 +845,49 @@ class LyricEditorPage(QWidget):
             char_parts.append(f'({start_ms},{duration_ms},0){text}')
         return f'[{line_start},{line_duration}]{"".join(char_parts)}'
 
+    def _buildYrcInfo(
+        self,
+        tokens: list[LyricTokenTiming],
+        finalize: bool,
+    ) -> YRCLyricInfo | None:
+        preview_tokens = [
+            self._previewTokenTiming(token, finalize)
+            for token in tokens
+            if not finalize or token.global_index < self._next_token_index
+        ]
+        if not preview_tokens:
+            preview_tokens = [self._previewTokenTiming(tokens[0], finalize=False)]
+
+        line_start = max(0.0, preview_tokens[0][1])
+        last_token = preview_tokens[-1]
+        line_end = max(
+            preview_tokens[0][1],
+            last_token[1] + max(0.0, last_token[2]),
+        )
+        chars: list[YRCCharInfo] = []
+        content_builder: list[str] = []
+        for token, start, duration in preview_tokens:
+            text = _safeYrcText(token.text)
+            if not text:
+                continue
+            content_builder.append(text)
+            chars.append(
+                YRCCharInfo(
+                    start=max(0.0, start),
+                    duration=max(0.0, duration),
+                    char=text,
+                )
+            )
+        content = ''.join(content_builder)
+        if not content:
+            return None
+        return YRCLyricInfo(
+            time=line_start,
+            duration=max(0.0, line_end - line_start),
+            content=content,
+            chars=chars,
+        )
+
     def _previewTokenTiming(
         self,
         token: LyricTokenTiming,
@@ -764,9 +905,10 @@ class LyricEditorPage(QWidget):
         else:
             previous = self._flat_tokens[self._next_token_index - 1]
             base = previous.start + max(previous.duration, _HOLD_STEP_SECONDS)
-            start = base + (
-                token.global_index - self._next_token_index
-            ) * _HOLD_STEP_SECONDS
+            start = (
+                base
+                + (token.global_index - self._next_token_index) * _HOLD_STEP_SECONDS
+            )
         duration = _HOLD_STEP_SECONDS if finalize else 0.0
         return token, start, duration
 

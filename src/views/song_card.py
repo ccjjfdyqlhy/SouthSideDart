@@ -60,7 +60,7 @@ from core.models import (
     SongDetail,
     SongInfo,
     SongStorable,
-    getCachedHashes
+    getCachedHashes,
 )
 from core.icons import bindIcon, getQIcon
 from core.downloader import (
@@ -211,7 +211,9 @@ class FolderSelectDialog(MessageBoxBase):
 class SearchSongCard(QWidget):
     imageLoaded = Signal(bytes)
 
-    def __init__(self, info: SearchSongInfo, play_callback: Callable, ctx: AppContext) -> None:
+    def __init__(
+        self, info: SearchSongInfo, play_callback: Callable, ctx: AppContext
+    ) -> None:
         super().__init__()
         self.info = info
         self._play_callback = play_callback
@@ -362,7 +364,7 @@ class SearchSongCard(QWidget):
             ),
             image=None,
             image_cache_hash=getCachedHashes(song_id).get('image_cache_hash', ''),
-            content_cache_hash=getCachedHashes(song_id).get('content_cache_hash', '')
+            content_cache_hash=getCachedHashes(song_id).get('content_cache_hash', ''),
         )
         if not favorites_manager.addSong(folder_name, storable):
             InfoBar.warning(

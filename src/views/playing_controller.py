@@ -797,13 +797,7 @@ class PlayingController(QWidget):
             metrics = QFontMetricsF(painter.font())
             tip_text = self._crossfadeTipText()
             painter.drawText(
-                int(
-                    (
-                        self.width()
-                        - metrics.horizontalAdvance(tip_text)
-                    )
-                    * 0.5
-                ),
+                int((self.width() - metrics.horizontalAdvance(tip_text)) * 0.5),
                 int(10 + metrics.ascent()),
                 tip_text,
             )

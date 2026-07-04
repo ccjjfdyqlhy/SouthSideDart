@@ -148,7 +148,9 @@ class LyricVideoExportDialog(MessageBoxBase):
         form.addRow(self.translation_box)
 
         self.align_box = ComboBox()
-        self.align_box.addItem(tr('playing_page.export_align_center'), userData='center')
+        self.align_box.addItem(
+            tr('playing_page.export_align_center'), userData='center'
+        )
         self.align_box.addItem(tr('playing_page.export_align_left'), userData='left')
         self.align_box.addItem(tr('playing_page.export_align_right'), userData='right')
         self._setComboData(self.align_box, cfg.lyric_video_export_alignment)
@@ -278,19 +280,17 @@ class LyricVideoExportProgressDialog(MessageBoxBase):
         super().__init__(parent)
         self._show_preview = show_preview
         self.title_label = SubtitleLabel(tr(title_key))
-        self.progress_label = QLabel(tr('playing_page.export_progress_percent', value=0))
+        self.progress_label = QLabel(
+            tr('playing_page.export_progress_percent', value=0)
+        )
         self.progress_bar = ProgressBar()
         self.progress_bar.setRange(0, 1000)
         self.progress_bar.setValue(0)
         self.frame_label = CaptionLabel(
             tr('playing_page.export_frame_status', current=0, total=0)
         )
-        self.fps_label = CaptionLabel(
-            tr('playing_page.export_fps_status', value='0.0')
-        )
-        self.eta_label = CaptionLabel(
-            tr('playing_page.export_eta_status', value='---')
-        )
+        self.fps_label = CaptionLabel(tr('playing_page.export_fps_status', value='0.0'))
+        self.eta_label = CaptionLabel(tr('playing_page.export_eta_status', value='---'))
         self.preview_label = QLabel()
         self.preview_label.setFixedSize(360, 203)
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -303,9 +303,13 @@ class LyricVideoExportProgressDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.progress_bar)
         labels_layout = QHBoxLayout()
         labels_layout.addWidget(self.frame_label)
-        labels_layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored))
+        labels_layout.addSpacerItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+        )
         labels_layout.addWidget(self.fps_label)
-        labels_layout.addSpacerItem(QSpacerItem(15, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored))
+        labels_layout.addSpacerItem(
+            QSpacerItem(15, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+        )
         labels_layout.addWidget(self.eta_label)
         self.viewLayout.addLayout(labels_layout)
         if show_preview:
@@ -337,7 +341,9 @@ class LyricVideoExportProgressDialog(MessageBoxBase):
         if len(self.eta_datas) >= (self.eta_datas.maxlen or 1):
             average_fps = sum(list(self.eta_datas)) / len(self.eta_datas)
             if average_fps > 0:
-                value = max(0, (status.frame_count - status.current_frame) / average_fps)
+                value = max(
+                    0, (status.frame_count - status.current_frame) / average_fps
+                )
                 self.eta_label.setText(
                     tr('playing_page.export_eta_status', value=f'{value:.0f}')
                 )

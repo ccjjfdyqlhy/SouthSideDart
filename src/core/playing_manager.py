@@ -99,6 +99,9 @@ class PlayingManager:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
         self.playlist: list[SongStorable] = []
+        self.heart_mode = False
+        self._heart_mode_playlist_id: str | None = None
+        self._heart_mode_loading = False
         self.current_index = -1
         self.total_length = 0.0
         self.preloaded = False
@@ -346,6 +349,9 @@ class PlayingManager:
 
     def setPlaylist(self, playlist: list[SongStorable]) -> None:
         current_song = self.current_song
+        self.heart_mode = False
+        self._heart_mode_playlist_id = None
+        self._heart_mode_loading = False
         self._cancelCrossfadePlayback()
         self.clearPreload()
         self.playlist = playlist
@@ -863,6 +869,9 @@ class PlayingManager:
             self._logger.debug('started preload thread')
 
     def playNext(self, byuser: bool) -> None:
+        if self.heart_mode and self.current_index >= len(self.playlist) - 3:
+            self._appendHeartModeSongsAsync()
+
         self._logger.debug(
             f'(Types) {type(self.next_song_audio)=} {type(self.next_song_gain)=}'
         )
@@ -1083,6 +1092,136 @@ class PlayingManager:
         self._cancelCrossfadePlayback()
         self.clearPreload()
         self.playStorable(storable)
+
+    def _heartModeSeed(self) -> SongStorable | None:
+        if self.current_song is not None:
+            return self.current_song
+        if 0 <= self.current_index < len(self.playlist):
+            return self.playlist[self.current_index]
+        if self.playlist:
+            return self.playlist[0]
+        return None
+
+    def _appendHeartModeSongsAsync(self, count: int = 20) -> None:
+        if (
+            not self.heart_mode
+            or self._heart_mode_playlist_id is None
+            or self._heart_mode_loading
+        ):
+            return
+        seed = self._heartModeSeed()
+        if seed is None:
+            return
+        playlist_id = self._heart_mode_playlist_id
+        self._heart_mode_loading = True
+
+        def _load() -> None:
+            try:
+                songs = getBackend().getHeartModeSongs(
+                    seed.id,
+                    playlist_id,
+                    start_music_id=seed.id,
+                    count=count,
+                )
+            except Exception as e:
+                self._logger.exception(e)
+                return
+
+            def _apply() -> None:
+                if not self.heart_mode or self._heart_mode_playlist_id != playlist_id:
+                    return
+                existing_ids = {str(song.id) for song in self.playlist}
+                added = [song for song in songs if str(song.id) not in existing_ids]
+                if not added:
+                    return
+                self.playlist.extend(added)
+                self.refreshRandom()
+                event_bus.emit(PLAYLIST_CHANGED)
+
+            self._schedule(_apply)
+
+        asyncTask(
+            _load,
+            (),
+            self._mwindow_obj,
+            finished=lambda: setattr(self, '_heart_mode_loading', False),
+        )
+
+    def startHeartMode(self) -> None:
+        seed = self._heartModeSeed()
+
+        def _emit_error(title: str, message: str) -> None:
+            self._schedule(self._emitError, title, message)
+
+        def _load(seed_song: SongStorable | None) -> None:
+            try:
+                backend = getBackend()
+                if not backend.loggedIn():
+                    _emit_error(
+                        tr('home_page.heart_mode'),
+                        tr('home_page.heart_mode_login_required'),
+                    )
+                    return
+
+                liked_playlist = backend.getLikedPlaylist()
+                if liked_playlist is None:
+                    _emit_error(
+                        tr('home_page.heart_mode'),
+                        tr('home_page.heart_mode_no_seed'),
+                    )
+                    return
+
+                seed = seed_song
+                if seed is None:
+                    liked_songs = backend.getPlaylistTracks(liked_playlist.id)
+                    seed = liked_songs[0] if liked_songs else None
+                if seed is None:
+                    daily_songs = backend.getDailyRecommendSongs()
+                    seed = daily_songs[0] if daily_songs else None
+                if seed is None:
+                    _emit_error(
+                        tr('home_page.heart_mode'),
+                        tr('home_page.heart_mode_no_seed'),
+                    )
+                    return
+
+                songs = backend.getHeartModeSongs(
+                    seed.id,
+                    liked_playlist.id,
+                    start_music_id=seed.id,
+                    count=24,
+                )
+                if not songs:
+                    _emit_error(
+                        tr('home_page.heart_mode'),
+                        tr('home_page.heart_mode_empty'),
+                    )
+                    return
+
+                if all(str(song.id) != str(seed.id) for song in songs):
+                    songs.insert(0, seed)
+
+                def _apply() -> None:
+                    self.heart_mode = True
+                    self._heart_mode_playlist_id = liked_playlist.id
+                    self._cancelCrossfadePlayback()
+                    self.clearPreload()
+                    self.playlist = songs
+                    self.refreshRandom()
+                    self.clearReservedNext()
+                    self.current_index = 0
+                    event_bus.emit(PLAYLIST_CHANGED)
+                    self.playSongAtIndex(0)
+
+                self._schedule(_apply)
+            except Exception as e:
+                self._logger.exception(e)
+                _emit_error(
+                    tr('home_page.heart_mode'),
+                    tr('home_page.heart_mode_failed'),
+                )
+
+        asyncTask(_load, (seed,), self._mwindow_obj)
 
     def _storable_asset_missing(self, song_storable: SongStorable) -> tuple[bool, bool]:
         backend = getBackend()
@@ -1774,15 +1913,17 @@ class PlayingManager:
         if image_missing or music_missing:
             if not self.ensureAssets(
                 song_storable,
-                lambda: self.playStorable(
-                    song_storable,
-                    preloaded_audio,
-                    restore_position,
-                    pause_after_load,
-                    mark_loaded,
-                )
-                if _is_current_playback()
-                else None,
+                lambda: (
+                    self.playStorable(
+                        song_storable,
+                        preloaded_audio,
+                        restore_position,
+                        pause_after_load,
+                        mark_loaded,
+                    )
+                    if _is_current_playback()
+                    else None
+                ),
             ):
                 return
 
