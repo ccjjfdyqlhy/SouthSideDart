@@ -477,8 +477,8 @@ TRANSLATIONS: dict[str, list[str]] = {
     'home_page.welcome_back': ['Welcome back,', '欢迎回来，'],
     'home_page.heart_mode': ['HeartBeat Mode', '心动模式'],
     'home_page.heart_mode_subtitle': [
-        'Start from your liked music and keep the feeling going.',
-        '从喜欢的音乐出发，接住下一首心动。',
+        'Start from your music that under your feet and keep the feeling going.',
+        '从脚下的音乐出发，接住下一首心动。',
     ],
     'home_page.heart_mode_hint': ['Click to start', '点击开启'],
     'home_page.heart_mode_login_required': [
@@ -500,7 +500,7 @@ TRANSLATIONS: dict[str, list[str]] = {
     'home_page.private_roam': ['Private Roam', '私人漫游'],
     'home_page.private_roam_subtitle': [
         'Start a personal radio flow from your taste.',
-        '从你的口味出发，漫游下一首惊喜。',
+        '丈量你的口味，给你下一首的惊喜。',
     ],
     'home_page.private_roam_hint': ['Click to roam', '点击漫游'],
     'home_page.private_roam_login_required': [

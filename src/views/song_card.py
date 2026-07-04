@@ -779,16 +779,16 @@ class PlaylistSongCard(_SongCardItem):
 
         export = Action(tr('song_card.export'), menu)
         export.setIcon(getQIcon('export'))
-        repeat = Action(tr('song_card.repeat'), menu)
-        repeat.setIcon(FluentIcon.SYNC.icon())
         rm = Action(tr('song_card.remove'), menu)
         rm.setIcon(getQIcon('remove'))
+        addto = Action(tr('song_card.add_to'), menu)
+        addto.setIcon(getQIcon('add'))
+        addto.triggered.connect(lambda: self._addTo())
 
         export.triggered.connect(lambda: self._exportSong())
-        repeat.triggered.connect(lambda: self._repeatSong())
         rm.triggered.connect(lambda: self._removeSong())
 
-        menu.addActions([export, repeat, rm])
+        menu.addActions([export, rm, addto])
 
         menu.exec(event.globalPos(), aniType=MenuAnimationType.DROP_DOWN)
 
@@ -855,20 +855,6 @@ class PlaylistSongCard(_SongCardItem):
                 )
 
             asyncTask(_export, (), self._mwindow, _final)
-
-    def _repeatSong(self):
-        playlist = self._dp.playing_manager.playlist
-        try:
-            index = playlist.index(self.storable)
-        except ValueError:
-            return
-
-        insert_index = index + 1
-        playlist.insert(insert_index, self.storable)
-        if self._dp.playing_manager.current_index >= insert_index:
-            self._dp.playing_manager.current_index += 1
-        event_bus.emit(PLAYLIST_CHANGED)
-        self._plp.lst.setCurrentRow(insert_index)
 
     def _removeSong(self):
         playlist = self._dp.playing_manager.playlist
