@@ -38,6 +38,7 @@ from qfluentwidgets import setTheme, Theme
 import shiboken6
 
 from core.config import loadConfig, saveConfig, Config
+from core.cache_cleanup import DEFAULT_DATA_CLEANUP_INTERVAL_SECONDS, cleanupDataFolder
 from core.favorites import favorites_manager, saveFavorites
 from core.icons import refreshBoundIcons
 from core.llm import LLM
@@ -327,6 +328,7 @@ if __name__ == '__main__':
     _ims.event_bus.subscribe(_ims.PRE_THEME_CHANGED, _themeChanged)
 
     def _cleanCaches():
+        last_data_cleanup = 0.0
         while True:
             if mwindow:
                 while mwindow._loading_song:
@@ -347,6 +349,20 @@ if __name__ == '__main__':
                         _logger.debug(f'failed to remove cache file {cache}: {e}')
                 if cleared_count > 0:
                     _logger.info(f'cleared {cleared_count} caches')
+
+                now = time.time()
+                if (
+                    cfg.data_cleanup_enabled
+                    and now - last_data_cleanup >= DEFAULT_DATA_CLEANUP_INTERVAL_SECONDS
+                ):
+                    last_data_cleanup = now
+                    try:
+                        cleanupDataFolder(
+                            max_bytes=cfg.data_cache_max_mb * 1024 * 1024,
+                            max_age_days=cfg.data_cache_max_age_days,
+                        )
+                    except Exception as e:
+                        _logger.exception(e)
 
             time.sleep(10)
 

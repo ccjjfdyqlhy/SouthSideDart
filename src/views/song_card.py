@@ -52,6 +52,7 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
+from core.cache_cleanup import touchCacheFile
 from core.models import (
     IMAGE_DATA_DIR,
     MUSIC_DATA_DIR,
@@ -795,13 +796,14 @@ class PlaylistSongCard(_SongCardItem):
     def _exportSong(self):
         if not self._dp.playing_manager.ensureAssets(self.storable):
             return
-        with open(
-            os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash), 'rb'
-        ) as f:
+        cache_path = os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash)
+        with open(cache_path, 'rb') as f:
+            music_bytes = f.read()
+            touchCacheFile(cache_path)
             export_path, fmt = QFileDialog.getSaveFileName(
                 self._mwindow,
                 tr('song_card.export_song'),
-                _export_default_path(self.storable, getSongFormat(f.read())),
+                _export_default_path(self.storable, getSongFormat(music_bytes)),
                 tr('song_card.song_files_mp3_m4a_flac_wav_ogg_opus'),
             )
 
@@ -824,12 +826,11 @@ class PlaylistSongCard(_SongCardItem):
                         datetime.datetime.fromtimestamp(publish_time / 1000).year
                     )
 
-                with open(
-                    os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash),
-                    'rb',
-                ) as song:
+                with open(cache_path, 'rb') as song:
+                    music_bytes = song.read()
+                    touchCacheFile(cache_path)
                     saveSongWithInformation(
-                        song.read(),
+                        music_bytes,
                         image_bytes,
                         self.storable.name,
                         self.storable.artists,
@@ -919,13 +920,14 @@ class FavoriteSongCard(_SongCardItem):
     def _exportSong(self):
         if not self._dp.playing_manager.ensureAssets(self.storable):
             return
-        with open(
-            os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash), 'rb'
-        ) as f:
+        cache_path = os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash)
+        with open(cache_path, 'rb') as f:
+            music_bytes = f.read()
+            touchCacheFile(cache_path)
             export_path, fmt = QFileDialog.getSaveFileName(
                 self._mwindow,
                 tr('song_card.export_song'),
-                _export_default_path(self.storable, getSongFormat(f.read())),
+                _export_default_path(self.storable, getSongFormat(music_bytes)),
                 tr('song_card.song_files_mp3_m4a_flac_wav_ogg_opus'),
             )
 
@@ -948,12 +950,11 @@ class FavoriteSongCard(_SongCardItem):
                         datetime.datetime.fromtimestamp(publish_time / 1000).year
                     )
 
-                with open(
-                    os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash),
-                    'rb',
-                ) as song:
+                with open(cache_path, 'rb') as song:
+                    music_bytes = song.read()
+                    touchCacheFile(cache_path)
                     saveSongWithInformation(
-                        song.read(),
+                        music_bytes,
                         image_bytes,
                         self.storable.name,
                         self.storable.artists,
@@ -1023,13 +1024,14 @@ class CloudFavoriteSongCard(_SongCardItem):
     def _exportSong(self):
         if not self._dp.playing_manager.ensureAssets(self.storable):
             return
-        with open(
-            os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash), 'rb'
-        ) as f:
+        cache_path = os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash)
+        with open(cache_path, 'rb') as f:
+            music_bytes = f.read()
+            touchCacheFile(cache_path)
             export_path, fmt = QFileDialog.getSaveFileName(
                 self._mwindow,
                 tr('song_card.export_song'),
-                _export_default_path(self.storable, getSongFormat(f.read())),
+                _export_default_path(self.storable, getSongFormat(music_bytes)),
                 tr('song_card.song_files_mp3_m4a_flac_wav_ogg_opus'),
             )
 
@@ -1052,12 +1054,11 @@ class CloudFavoriteSongCard(_SongCardItem):
                         datetime.datetime.fromtimestamp(publish_time / 1000).year
                     )
 
-                with open(
-                    os.path.join(MUSIC_DATA_DIR, self.storable.content_cache_hash),
-                    'rb',
-                ) as song:
+                with open(cache_path, 'rb') as song:
+                    music_bytes = song.read()
+                    touchCacheFile(cache_path)
                     saveSongWithInformation(
-                        song.read(),
+                        music_bytes,
                         image_bytes,
                         self.storable.name,
                         self.storable.artists,

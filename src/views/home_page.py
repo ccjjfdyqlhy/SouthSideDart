@@ -372,7 +372,7 @@ class HomePage(SScrollArea):
                 card.queued.connect(self._queueSong)
                 self.recommend_songs_layout.insertWidget(0, card)
 
-                QTimer.singleShot(20, add)
+                QTimer.singleShot(0, add)
 
             self.ctx.addScheduledTask(
                 lambda: self.songs_counter.setText(str(len(songs)))

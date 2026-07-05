@@ -75,10 +75,6 @@ class ChattingViewer(QWidget):
             self._buffer += append_str
             self._append_buffer = self._append_buffer[take:]
 
-        final = self._stream_finished and not self._append_buffer
-        if self._buffer:
-            self._drain_buffer(final)
-
         if self._append_buffer or self._buffer:
             self._append_timer.start(int(150 / max(1, len(self._append_buffer))))
         elif self._stream_finished:
@@ -126,6 +122,7 @@ class ChattingViewer(QWidget):
         self._stream_finished = True
         if not self._append_timer.isActive():
             self._append_timer.start(0)
+        self._drain_buffer(True)
 
     @override
     def resizeEvent(self, event: QResizeEvent) -> None:

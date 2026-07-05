@@ -113,6 +113,9 @@ class Config:
     lyric_video_export_scroll_animation: bool = True
 
     download_concurrent_threads: int = 16
+    data_cleanup_enabled: bool = True
+    data_cache_max_mb: int = 4096
+    data_cache_max_age_days: int = 30
 
     llm_base_url: str = 'https://api.openai.com/v1'
     llm_api_key_encrypted: str = ''
@@ -256,6 +259,21 @@ def _applyConfigJsonObject(data: dict[str, Any]) -> None:
         Config.lyric_video_export_background_color,
     )
     data.pop('lyric_video_export_x_axis_animation', None)
+    data['data_cleanup_enabled'] = bool(
+        data.get('data_cleanup_enabled', Config.data_cleanup_enabled)
+    )
+    data['data_cache_max_mb'] = _normalizeInt(
+        data.get('data_cache_max_mb'),
+        Config.data_cache_max_mb,
+        512,
+        102400,
+    )
+    data['data_cache_max_age_days'] = _normalizeInt(
+        data.get('data_cache_max_age_days'),
+        Config.data_cache_max_age_days,
+        1,
+        3650,
+    )
 
     providers = data.get('llm_providers')
     if isinstance(providers, list):

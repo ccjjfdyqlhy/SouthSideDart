@@ -10,6 +10,8 @@ import json
 import os
 import shutil
 
+from core.cache_cleanup import touchCacheFile
+
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 DATA_DIR = os.path.join(_PROJECT_ROOT, 'data')
 MUSIC_DATA_DIR = os.path.join(DATA_DIR, 'music')
@@ -269,6 +271,7 @@ class SongStorable:
         if not os.path.exists(cache_path):
             with open(cache_path, 'wb') as f:
                 f.write(data)
+        touchCacheFile(cache_path)
         setattr(self, hash_attr, cache_hash)
         if self.id:
             if hash_attr == 'image_cache_hash':
@@ -302,12 +305,16 @@ class SongStorable:
         cache_path = self._getCachePath(cache_dir, cache_hash)
         if os.path.exists(cache_path):
             with open(cache_path, 'rb') as f:
-                return f.read()
+                data = f.read()
+            touchCacheFile(cache_path)
+            return data
         legacy_path = self._getLegacyCachePath(cache_dir, cache_hash)
         if os.path.exists(legacy_path):
             shutil.move(legacy_path, cache_path)
             with open(cache_path, 'rb') as f:
-                return f.read()
+                data = f.read()
+            touchCacheFile(cache_path)
+            return data
         return None
 
     def imageCached(self) -> bool:

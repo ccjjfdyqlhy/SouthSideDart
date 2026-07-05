@@ -4,6 +4,7 @@ import os
 import requests
 
 from core.app_context import AppContext
+from core.cache_cleanup import touchCacheFile
 from core.downloader import asyncTask
 from core.icons import SouthsideIcon
 from core.models import (
@@ -175,6 +176,7 @@ class CloudFolderCard(QWidget):
         else:
             with open(file, 'rb') as f:
                 image_bytes = f.read()
+                touchCacheFile(file)
                 pixmap = QPixmap()
                 pixmap.loadFromData(image_bytes)
                 if not pixmap.isNull():
@@ -281,6 +283,7 @@ class SearchCloudFolderCard(QWidget):
         else:
             with open(file, 'rb') as f:
                 image_bytes = f.read()
+                touchCacheFile(file)
                 pixmap = QPixmap()
                 pixmap.loadFromData(image_bytes)
                 if not pixmap.isNull():
