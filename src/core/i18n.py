@@ -584,6 +584,61 @@ TRANSLATIONS: dict[str, list[str]] = {
         'choose the language used by the app',
         '选择软件显示的语言',
     ],
+    'setting_page.cache_storage': ['Cache Storage', '缓存存储'],
+    'setting_page.cache_storage_easy': ['Storage', '存储空间'],
+    'setting_page.cache_storage_description': [
+        'Controls for downloaded music, images, and other redownloadable files.',
+        '控制下载歌曲、图片和其他可重新下载文件的保留方式。',
+    ],
+    'setting_page.cache_storage_description_easy': [
+        'Choose how much downloaded song data the app keeps.',
+        '选择软件保留多少已下载的歌曲数据。',
+    ],
+    'setting_page.data_cleanup_enabled': [
+        'Enable Data Cache Cleanup',
+        '启用数据缓存清理',
+    ],
+    'setting_page.data_cleanup_enabled_easy': [
+        'Auto Clear Old Downloads',
+        '自动清理旧下载',
+    ],
+    'setting_page.data_cleanup_enabled_description': [
+        'automatically remove redownloadable cache files when they are old or the data folder is over limit',
+        '当可重新下载的缓存文件太旧，或 data 文件夹超过上限时自动清理。',
+    ],
+    'setting_page.data_cleanup_enabled_description_easy': [
+        'Keep the app from filling your disk with old song files.',
+        '防止旧歌曲文件一直堆满磁盘。',
+    ],
+    'setting_page.data_cache_max_age_minutes': [
+        'Cache Max Age (minutes)',
+        '缓存最长保留时间（分钟）',
+    ],
+    'setting_page.data_cache_max_age_minutes_easy': [
+        'Keep Old Downloads (minutes)',
+        '旧下载保留分钟数',
+    ],
+    'setting_page.data_cache_max_age_minutes_description': [
+        'delete cached music and images that have not been used for this many minutes',
+        '删除这么多分钟内没有再次使用过的歌曲和图片缓存。',
+    ],
+    'setting_page.data_cache_max_age_minutes_description_easy': [
+        'If a downloaded song is not played again for this many minutes, it can be removed.',
+        '已下载歌曲这么多分钟没再播放，就可以被清掉。',
+    ],
+    'setting_page.data_cache_max_mb': [
+        'Cache Size Limit (MB)',
+        '缓存大小上限（MB）',
+    ],
+    'setting_page.data_cache_max_mb_easy': ['Space Limit (MB)', '占用空间上限（MB）'],
+    'setting_page.data_cache_max_mb_description': [
+        'when music and image cache is bigger than this, oldest unused files are removed first',
+        '当歌曲和图片缓存超过这个大小时，优先清理最久没用的文件。',
+    ],
+    'setting_page.data_cache_max_mb_description_easy': [
+        'When saved song data grows past this limit, old unused files are cleared first.',
+        '已保存的歌曲数据超过这个上限后，会先清理旧文件。',
+    ],
     'setting_page.changed_output_device_to_device': [
         'changed output device to {device}',
         '已将输出设备切换为 {device}',

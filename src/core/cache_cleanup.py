@@ -15,12 +15,16 @@ COVER_DATA_DIR = os.path.join(DATA_DIR, 'cover')
 TEMP_DATA_DIR = os.path.join(DATA_DIR, 'temp')
 
 DEFAULT_DATA_CACHE_MAX_BYTES = 4 * 1024 * 1024 * 1024
-DEFAULT_DATA_CACHE_MAX_AGE_DAYS = 30
-DEFAULT_DATA_CLEANUP_INTERVAL_SECONDS = 60 * 60
-DEFAULT_TEMP_CACHE_MAX_AGE_HOURS = 24
+DEFAULT_DATA_CACHE_MAX_AGE_MINUTES = 5
+DEFAULT_DATA_CLEANUP_INTERVAL_SECONDS = 5 * 60
+DEFAULT_TEMP_CACHE_MAX_AGE_MINUTES = 5
 
 _RECENT_FILE_GRACE_SECONDS = 5 * 60
 _CACHE_DIRS = (MUSIC_DATA_DIR, IMAGE_DATA_DIR, COVER_DATA_DIR)
+_PROTECTED_DATA_FILES = (
+    os.path.join(DATA_DIR, 'count.json'),
+    os.path.join(DATA_DIR, 'cache_index.json'),
+)
 
 
 @dataclass(frozen=True)
@@ -48,14 +52,14 @@ def touchCacheFile(path: str) -> None:
 
 def cleanupDataFolder(
     max_bytes: int = DEFAULT_DATA_CACHE_MAX_BYTES,
-    max_age_days: int = DEFAULT_DATA_CACHE_MAX_AGE_DAYS,
-    temp_max_age_hours: int = DEFAULT_TEMP_CACHE_MAX_AGE_HOURS,
+    max_age_minutes: int = DEFAULT_DATA_CACHE_MAX_AGE_MINUTES,
+    temp_max_age_minutes: int = DEFAULT_TEMP_CACHE_MAX_AGE_MINUTES,
 ) -> CacheCleanupResult:
     """Trim redownloadable files in data/."""
     now = time.time()
     max_bytes = max(0, int(max_bytes))
-    max_age_seconds = max(0, int(max_age_days)) * 24 * 60 * 60
-    temp_max_age_seconds = max(0, int(temp_max_age_hours)) * 60 * 60
+    max_age_seconds = max(0, int(max_age_minutes)) * 60
+    temp_max_age_seconds = max(0, int(temp_max_age_minutes)) * 60
     cache_files = _iterCacheFiles(_CACHE_DIRS)
     temp_files = _iterCacheFiles((TEMP_DATA_DIR,))
 
@@ -68,6 +72,8 @@ def cleanupDataFolder(
     def removeFile(file: _CacheFile, reduce_remaining: bool) -> None:
         nonlocal removed_count, removed_bytes, skipped_count, remaining_bytes
         if file.path in removed_paths:
+            return
+        if _isProtectedDataFile(file.path):
             return
         try:
             os.remove(file.path)
@@ -133,6 +139,8 @@ def _iterCacheFiles(cache_dirs: tuple[str, ...]) -> list[_CacheFile]:
         for root, _dirs, files in os.walk(cache_dir):
             for file in files:
                 path = os.path.join(root, file)
+                if _isProtectedDataFile(path):
+                    continue
                 try:
                     stat_result = os.stat(path)
                 except OSError:
@@ -149,3 +157,11 @@ def _iterCacheFiles(cache_dirs: tuple[str, ...]) -> list[_CacheFile]:
 
 def _fileAge(now: float, file: _CacheFile) -> float:
     return max(0.0, now - file.mtime)
+
+
+def _isProtectedDataFile(path: str) -> bool:
+    normalized = os.path.normcase(os.path.abspath(path))
+    return any(
+        normalized == os.path.normcase(os.path.abspath(protected))
+        for protected in _PROTECTED_DATA_FILES
+    )

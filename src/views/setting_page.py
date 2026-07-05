@@ -338,6 +338,34 @@ class SettingPage(QWidget):
             advanced=True,
         )
 
+        if lw:
+            lw.top('Setting up storage options...')
+        self.addSection(
+            'setting_page.cache_storage',
+            'setting_page.cache_storage_description',
+        )
+        self.addCheckSetting(
+            'setting_page.data_cleanup_enabled',
+            'setting_page.data_cleanup_enabled_description',
+            'data_cleanup_enabled',
+        )
+        self.addNumberSetting(
+            'setting_page.data_cache_max_age_minutes',
+            'setting_page.data_cache_max_age_minutes_description',
+            1,
+            1440,
+            1,
+            'data_cache_max_age_minutes',
+        )
+        self.addNumberSetting(
+            'setting_page.data_cache_max_mb',
+            'setting_page.data_cache_max_mb_description',
+            512,
+            102400,
+            512,
+            'data_cache_max_mb',
+        )
+
         self.addSection(
             'setting_page.playing',
             'setting_page.playback_order_stereo_output_speed_and_skip_behavior',

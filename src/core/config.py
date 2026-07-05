@@ -115,7 +115,7 @@ class Config:
     download_concurrent_threads: int = 16
     data_cleanup_enabled: bool = True
     data_cache_max_mb: int = 4096
-    data_cache_max_age_days: int = 30
+    data_cache_max_age_minutes: int = 5
 
     llm_base_url: str = 'https://api.openai.com/v1'
     llm_api_key_encrypted: str = ''
@@ -268,11 +268,12 @@ def _applyConfigJsonObject(data: dict[str, Any]) -> None:
         512,
         102400,
     )
-    data['data_cache_max_age_days'] = _normalizeInt(
-        data.get('data_cache_max_age_days'),
-        Config.data_cache_max_age_days,
+    data.pop('data_cache_max_age_days', None)
+    data['data_cache_max_age_minutes'] = _normalizeInt(
+        data.get('data_cache_max_age_minutes'),
+        Config.data_cache_max_age_minutes,
         1,
-        3650,
+        525600,
     )
 
     providers = data.get('llm_providers')

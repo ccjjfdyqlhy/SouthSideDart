@@ -359,7 +359,7 @@ if __name__ == '__main__':
                     try:
                         cleanupDataFolder(
                             max_bytes=cfg.data_cache_max_mb * 1024 * 1024,
-                            max_age_days=cfg.data_cache_max_age_days,
+                            max_age_minutes=cfg.data_cache_max_age_minutes,
                         )
                     except Exception as e:
                         _logger.exception(e)
