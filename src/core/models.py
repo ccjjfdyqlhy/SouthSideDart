@@ -641,7 +641,82 @@ class TrackLyricsInfo:
     ytlrc_lyric: str
 
 
+@dataclass
+class BackendSessionSnapshot:
+    session: str
+    login_status: dict | None
+
+
+@dataclass
+class BackendAccountInfo:
+    user_id: int | str | None
+    nickname: str
+    avatar_url: str
+    logged_in: bool
+    vip_type: int | str
+
+
+@dataclass
+class LoginQRCodeInfo:
+    key: str
+    url: str
+
+
 class MusicServiceBackend(ABC):
+    @abstractmethod
+    def getCurrentLoginStatus(self) -> dict: ...
+
+    @abstractmethod
+    def writeLoginInfo(self, login_status: dict | None) -> None: ...
+
+    @abstractmethod
+    def currentSessionIsAnonymous(self) -> bool: ...
+
+    @abstractmethod
+    def loadSession(self, session: str) -> None: ...
+
+    @abstractmethod
+    def dumpSession(self) -> str: ...
+
+    @abstractmethod
+    def loginViaAnonymousAccount(self) -> BackendSessionSnapshot: ...
+
+    @abstractmethod
+    def setRandomDeviceId(self) -> None: ...
+
+    @abstractmethod
+    def getSessionBindings(self) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    def refreshSessionIfNeeded(
+        self, expiry_window_seconds: int = 300
+    ) -> BackendSessionSnapshot | None: ...
+
+    @abstractmethod
+    def getAccountInfo(self) -> BackendAccountInfo: ...
+
+    @abstractmethod
+    def logout(self) -> BackendSessionSnapshot: ...
+
+    @abstractmethod
+    def createLoginQRCode(self) -> LoginQRCodeInfo: ...
+
+    @abstractmethod
+    def checkLoginQRCode(self, key: str) -> int: ...
+
+    @abstractmethod
+    def sendCellphoneVerificationCode(self, phone: str, ctcode: int = 86) -> bool: ...
+
+    @abstractmethod
+    def verifyCellphoneVerificationCode(
+        self, phone: str, captcha: str, ctcode: int = 86
+    ) -> bool: ...
+
+    @abstractmethod
+    def loginViaCellphone(
+        self, phone: str, captcha: str, ctcode: int = 86
+    ) -> BackendSessionSnapshot: ...
+
     @abstractmethod
     def searchSong(
         self, keywords: str, offset: int = 0, limit: int = 30
@@ -715,3 +790,9 @@ class MusicServiceBackend(ABC):
 
     @abstractmethod
     def getSimilarFMSongs(self) -> list[SongStorable]: ...
+
+    @abstractmethod
+    def recordPlayed(self, song_id: str, song_name: str, time: float) -> None: ...
+
+    @abstractmethod
+    def recordPlay(self, song_id: str) -> None: ...

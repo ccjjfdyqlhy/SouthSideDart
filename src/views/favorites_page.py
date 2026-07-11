@@ -70,7 +70,7 @@ class FavoritesPage(QWidget):
         self.ctx = ctx
         lw = ctx.launch_window
         if lw:
-            lw.top(tr('favorites_page.initializing_favorites_page'))
+            lw.subtitle(tr('favorites_page.initializing_favorites_page'))
         self.setObjectName('favorites_page')
 
         global_layout = QVBoxLayout(self)

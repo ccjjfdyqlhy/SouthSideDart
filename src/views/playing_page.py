@@ -373,7 +373,7 @@ class PlayingPage(QWidget):
         super().__init__()
         self._logger = logging.getLogger(__name__)
         if ctx.launch_window:
-            ctx.launch_window.top('Initializing playing page...')
+            ctx.launch_window.subtitle('Initializing playing page...')
             self._lw = ctx.launch_window
         else:
             self._lw = None
@@ -391,7 +391,7 @@ class PlayingPage(QWidget):
 
         lw = self._lw
         if lw:
-            lw.top('  Building player UI...')
+            lw.subtitle('  Building player UI...')
         global_layout = QHBoxLayout()
 
         contents_layout = QVBoxLayout()
@@ -431,7 +431,7 @@ class PlayingPage(QWidget):
         contents_widget.setLayout(contents_layout)
         global_layout.addWidget(contents_widget, stretch=-1)
         if lw:
-            lw.top('  Creating lyrics viewer...')
+            lw.subtitle('  Creating lyrics viewer...')
         self.viewer = LyricsViewer(ctx)
         global_layout.addWidget(self.viewer, stretch=2)
 

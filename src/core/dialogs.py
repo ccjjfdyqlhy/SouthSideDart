@@ -1,8 +1,8 @@
 import io
 
+from core.backend import getBackend
 from imports import QLabel, QListWidget, QWidget, bindText, tr
 from imports import QImage, QPixmap
-from pyncm import apis
 import qrcode
 from qfluentwidgets import (
     LineEdit,
@@ -155,17 +155,13 @@ class QRCodeLoginDialog(MessageBoxBase):
     def login(self):
         self.errlabel.hide()
 
-        rsp: dict = apis.login.loginQrcodeCheck(self.key)  # type: ignore
-        if rsp['code'] == 803:
+        code = getBackend().checkLoginQRCode(self.key)
+        if code == 803:
             self.logger.info('Logined in successfully')
-            apis.login.writeLoginInfo(
-                apis.login.getCurrentLoginStatus(),  # type: ignore
-            )
-
             self.accept()
-        elif rsp['code'] == 8821:
+        elif code == 8821:
             self.errlabel.setText(tr('dialogs.login_anomaly_risk_control'))
             self.errlabel.show()
-        elif rsp['code'] == 800:
+        elif code == 800:
             self.errlabel.setText(tr('dialogs.qr_code_expired_or_not_exist'))
             self.errlabel.show()

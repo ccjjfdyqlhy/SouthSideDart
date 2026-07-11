@@ -5,10 +5,8 @@ import logging
 
 import os
 import re
-import shutil
 import sys
 import threading
-import time
 from typing import TextIO, Optional
 
 from colorama import Fore, Style, init
@@ -79,7 +77,7 @@ class LogHandler(logging.Handler):
         plain_suffix = f'[{record.thread}/{record.threadName}]'
 
         try:
-            term_width = shutil.get_terminal_size().columns
+            term_width = os.get_terminal_size().columns
         except Exception:
             term_width = 80
 

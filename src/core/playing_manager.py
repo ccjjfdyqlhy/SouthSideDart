@@ -37,7 +37,6 @@ from core.models import (
     SongStorable,
     TrackLyricsInfo,
 )
-from core.netease_backend import NeteaseCloudMusicBackend
 from core.weighted_random import AdvancedRandom
 from services.events.event_bus import event_bus
 from services.events.events import (
@@ -655,6 +654,12 @@ class PlayingManager:
             return self._crossfade_player.getLoadedTime()
         player = self._player
         return player.getLoadedTime() if player is not None else 0.0
+
+    def getDisplayPreparedLead(self) -> float:
+        if self.crossfading and self._crossfade_player is not None:
+            return self._crossfade_player._producerPreparedLead()
+        player = self._player
+        return player._producerPreparedLead() if player is not None else 0.0
 
     def _shutdownCrossfadePlayer(self) -> None:
         player = self._crossfade_player
@@ -1645,6 +1650,8 @@ class PlayingManager:
             image_bytes = song_storable.getImageBytes()
             result['image'] = image_bytes
             result['avg_color'] = self._averageColorFromBytes(image_bytes)
+        except FileNotFoundError as e:
+            self._logger.warning('skipping missing playback image: %s', e)
         except Exception:
             self._logger.exception('failed to load image bytes for playback')
 
@@ -1693,18 +1700,15 @@ class PlayingManager:
 
         def _logAction():
             backend = getBackend()
-            if isinstance(backend, NeteaseCloudMusicBackend):
-                if self._last_storable:
-                    backend.recordPlayed(
-                        self._last_storable.id,
-                        self._last_storable.name,
-                        timeLib.time() - self._play_storable_time,
-                    )
-                    self._logger.info(
-                        f'logged playback action id={self._last_storable.id}'
-                    )
-                backend.recordPlay(song_storable.id)
-                self._logger.info(f'logged start play action id={song_storable.id}')
+            if self._last_storable:
+                backend.recordPlayed(
+                    self._last_storable.id,
+                    self._last_storable.name,
+                    timeLib.time() - self._play_storable_time,
+                )
+                self._logger.info(f'logged playback action id={self._last_storable.id}')
+            backend.recordPlay(song_storable.id)
+            self._logger.info(f'logged start play action id={song_storable.id}')
 
             self._play_storable_time = timeLib.time()
             self._last_storable = song_storable
@@ -1775,7 +1779,7 @@ class PlayingManager:
             player = self._player
             if player is None:
                 return
-            if player.getLoadedTime() <= 0:
+            if player.getLength() <= 0:
                 return
 
             state['started'] = True

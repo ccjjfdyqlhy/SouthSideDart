@@ -34,7 +34,7 @@ class SearchPage(QWidget):
         self.ctx = ctx
         lw = ctx.launch_window
         if lw:
-            lw.top('Initializing search page...')
+            lw.subtitle('Initializing search page...')
         self.setObjectName('search_page')
         self.img_card_map: dict[str, SearchSongCard] = {}
 
@@ -53,10 +53,10 @@ class SearchPage(QWidget):
         global_layout.addWidget(self.search_type)
 
         if lw:
-            lw.top('  creating search input')
+            lw.subtitle('  creating search input')
 
         if lw:
-            lw.top('  creating results list')
+            lw.subtitle('  creating results list')
         self.lst = SListWidget()
         self.lst.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.lst.verticalScrollBar().setSingleStep(14)
@@ -68,7 +68,7 @@ class SearchPage(QWidget):
         self.fetchedPlaylists.connect(self.addPlaylists)
 
         if lw:
-            lw.top('  starting scroll monitor')
+            lw.subtitle('  starting scroll monitor')
         self.check_timer = QTimer(self)
         self.check_timer.timeout.connect(self.checkRect)
         self.check_timer.start(50)

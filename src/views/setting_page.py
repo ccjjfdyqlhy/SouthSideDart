@@ -301,7 +301,7 @@ class SettingPage(QWidget):
     def _initOptions(self) -> None:
         lw = self._launchwindow
         if lw:
-            lw.push('Setting up sidebar options...')
+            lw.subtitle('Setting up sidebar options...')
 
         self.advanced_settings_box = CheckBox()
         bindText(self.advanced_settings_box, 'setting_page.enable_advanced_settings')
@@ -339,7 +339,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up storage options...')
+            lw.subtitle('Setting up storage options...')
         self.addSection(
             'setting_page.cache_storage',
             'setting_page.cache_storage_description',
@@ -493,7 +493,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up LLM options...')
+            lw.subtitle('Setting up LLM options...')
         self.addSection(
             'setting_page.llm',
             'setting_page.llm_provider_model_and_authentication',
@@ -513,7 +513,7 @@ class SettingPage(QWidget):
         self.addSeparateWidget(self.llm_provider_list_widget, advanced=True)
 
         if lw:
-            lw.top('Setting up window options...')
+            lw.subtitle('Setting up window options...')
         self.addSection(
             'setting_page.window', 'setting_page.theme_sensitive_background_mixing'
         )
@@ -528,7 +528,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up lyrics options...')
+            lw.subtitle('Setting up lyrics options...')
         self.addSection(
             'setting_page.lyrics',
             'setting_page.smoothing_controls_for_the_main_lyrics_animation',
@@ -554,7 +554,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up Desktop lyrics options...')
+            lw.subtitle('Setting up Desktop lyrics options...')
 
         self.addSection(
             'setting_page.desktop_lyrics',
@@ -585,7 +585,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up FFT options...')
+            lw.subtitle('Setting up FFT options...')
         self.addSection(
             'setting_page.fft',
             'setting_page.frequency_visualization_tuning_for_local_and_client_output',
@@ -638,7 +638,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up loudness balance...')
+            lw.subtitle('Setting up loudness balance...')
         self.addSection(
             'setting_page.loudness',
             'setting_page.target_volume_normalization_for_playback',
@@ -679,7 +679,7 @@ class SettingPage(QWidget):
         )
 
         if lw:
-            lw.top('Setting up connection options...')
+            lw.subtitle('Setting up connection options...')
         self.addSection(
             'setting_page.connection',
             'setting_page.southside_client_websocket_status_and_controls',

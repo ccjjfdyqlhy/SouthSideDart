@@ -27,7 +27,6 @@ from views.setting_page import SettingPage
 
 import threading
 import time
-import uuid
 from types import TracebackType
 import glob
 
@@ -47,8 +46,6 @@ from core.backend import initBackend
 from core.netease_backend import NeteaseCloudMusicBackend
 from core.playing_manager import PlayingManager
 from core import theme as themeModule
-import pyncm as ncm
-from pyncm import apis
 from core.ws_server import ws_server, ws_handler
 from views.log_handler import LogHandler, hijackStreams
 from views.launch_window import LaunchWindow
@@ -237,6 +234,158 @@ ws_handler.onConnected.connect(_on_ws_connected)
 ws_handler.onDisconnected.connect(_on_ws_disconnected)
 
 
+def _schedule_ws_task(fn) -> None:
+    if mwindow and getattr(mwindow, 'ctx', None):
+        mwindow.ctx.addScheduledTask(fn)
+    else:
+        _ims.QTimer.singleShot(0, fn)
+
+
+def _playlist_artists_text(song) -> str:
+    artists = []
+    for artist in getattr(song, 'artists', []) or []:
+        name = getattr(artist, 'name', '')
+        if name:
+            artists.append(str(name))
+    return ', '.join(artists)
+
+
+def _playlist_item_payload(index: int, song) -> dict[str, object]:
+    duration = int(getattr(song, 'duration', 0) or 0)
+    return {
+        'index': index,
+        'id': str(getattr(song, 'id', '')),
+        'name': str(getattr(song, 'name', '')),
+        'artists': _playlist_artists_text(song),
+        'duration': duration,
+        'duration_ms': duration,
+    }
+
+
+def _ws_playlist_payload() -> dict[str, object] | None:
+    ctx_obj = globals().get('ctx')
+    playing_manager = getattr(ctx_obj, 'playing_manager', None)
+    if playing_manager is None:
+        return None
+
+    playlist = list(playing_manager.playlist)
+    current_index = int(getattr(playing_manager, 'current_index', -1))
+    current_song_id = ''
+    if 0 <= current_index < len(playlist):
+        current_song_id = str(getattr(playlist[current_index], 'id', ''))
+    return {
+        'option': 'playlist_update',
+        'current_index': current_index,
+        'current_song_id': current_song_id,
+        'play_mode': str(getattr(playing_manager, 'play_mode', '')),
+        'count': len(playlist),
+        'items': [
+            {
+                **_playlist_item_payload(index, song),
+                'is_current': index == current_index,
+            }
+            for index, song in enumerate(playlist)
+        ],
+    }
+
+
+def _send_ws_playlist_state() -> None:
+    if not ws_handler.is_open:
+        return
+    ws_handler.sendJsonFactory(
+        lambda: (
+            _ws_playlist_payload()
+            or {
+                'option': 'playlist_update',
+                'current_index': -1,
+                'current_song_id': '',
+                'play_mode': '',
+                'count': 0,
+                'items': [],
+            }
+        ),
+        coalesce_key='playlist_update',
+    )
+
+
+def _payload_int(payload: dict, key: str, default: int = -1) -> int:
+    try:
+        return int(payload.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _handle_ws_playlist_control(payload: dict) -> None:
+    ctx_obj = globals().get('ctx')
+    playing_manager = getattr(ctx_obj, 'playing_manager', None)
+    if playing_manager is None:
+        return
+
+    action = str(payload.get('action', 'get'))
+    playlist = playing_manager.playlist
+
+    if action == 'get':
+        _send_ws_playlist_state()
+        return
+
+    if action == 'play_index':
+        index = _payload_int(payload, 'index')
+        playing_manager.playSongAtIndex(index)
+        _send_ws_playlist_state()
+        return
+
+    if action == 'remove_index':
+        index = _payload_int(payload, 'index')
+        if index < 0 or index >= len(playlist):
+            return
+        removing_current = index == playing_manager.current_index
+        playlist.pop(index)
+        if playing_manager.current_index > index:
+            playing_manager.current_index -= 1
+        elif playing_manager.current_index >= len(playlist):
+            playing_manager.current_index = len(playlist) - 1
+        _ims.event_bus.emit(_ims.PLAYLIST_CHANGED)
+        if removing_current and 0 <= playing_manager.current_index < len(playlist):
+            playing_manager.playSongAtIndex(playing_manager.current_index)
+        return
+
+    if action == 'move':
+        from_index = _payload_int(payload, 'from_index')
+        to_index = _payload_int(payload, 'to_index')
+        if (
+            from_index < 0
+            or from_index >= len(playlist)
+            or to_index < 0
+            or to_index >= len(playlist)
+            or from_index == to_index
+        ):
+            return
+        current_song = None
+        if 0 <= playing_manager.current_index < len(playlist):
+            current_song = playlist[playing_manager.current_index]
+        song = playlist.pop(from_index)
+        playlist.insert(to_index, song)
+        if current_song is not None:
+            try:
+                playing_manager.current_index = playlist.index(current_song)
+            except ValueError:
+                playing_manager.current_index = -1
+        _ims.event_bus.emit(_ims.PLAYLIST_CHANGED)
+        return
+
+    if action == 'clear':
+        current_song = None
+        if 0 <= playing_manager.current_index < len(playlist):
+            current_song = playlist[playing_manager.current_index]
+        playlist.clear()
+        if current_song is not None:
+            playlist.append(current_song)
+            playing_manager.current_index = 0
+        else:
+            playing_manager.current_index = -1
+        _ims.event_bus.emit(_ims.PLAYLIST_CHANGED)
+
+
 def _handle_ws_message(message: str) -> None:
     try:
         payload = json.loads(message)
@@ -246,7 +395,12 @@ def _handle_ws_message(message: str) -> None:
 
     if not isinstance(payload, dict):
         return
-    if payload.get('option') != 'music_control':
+
+    option = payload.get('option')
+    if option == 'playlist_control':
+        _schedule_ws_task(lambda payload=payload: _handle_ws_playlist_control(payload))
+        return
+    if option != 'music_control':
         return
 
     command = payload.get('command')
@@ -279,13 +433,13 @@ def _handle_ws_message(message: str) -> None:
         elif command == 'previous':
             _ims.event_bus.emit(_ims.PLAYLAST)
 
-    if mwindow and getattr(mwindow, 'ctx', None):
-        mwindow.ctx.addScheduledTask(_run)
-    else:
-        _ims.QTimer.singleShot(0, _run)
+    _schedule_ws_task(_run)
 
 
 ws_handler.onMessage.connect(_handle_ws_message)
+ws_handler.onConnected.connect(_send_ws_playlist_state)
+_ims.event_bus.subscribe(_ims.PLAYLIST_CHANGED, lambda: _send_ws_playlist_state())
+_ims.event_bus.subscribe(_ims.SONG_CHANGED, lambda _song: _send_ws_playlist_state())
 _ims.event_bus.subscribe(
     _ims.PLAY_STATE_CHANGED,
     lambda is_playing: ws_handler.sendJson(
@@ -304,14 +458,15 @@ if __name__ == '__main__':
     assert launchwindow is not None
     launchwindow.subtitle('Phase 1 (start core...)')
 
-    launchwindow.push('Writting login information...')
-    cfg = Config.instance()
-    if cfg.login_status and not ncm.getCurrentSession().is_anonymous:
-        apis.login.writeLoginInfo(cfg.login_status)
-    else:
-        cfg.login_status = apis.login.getCurrentLoginStatus()  # type: ignore
+    backend = NeteaseCloudMusicBackend()
+    initBackend(backend)
 
-    initBackend(NeteaseCloudMusicBackend())
+    launchwindow.subtitle('Writting login information...')
+    cfg = Config.instance()
+    if cfg.login_status and not backend.currentSessionIsAnonymous():
+        backend.writeLoginInfo(cfg.login_status)
+    else:
+        cfg.login_status = backend.getCurrentLoginStatus()
 
     def _themeChanged(theme: str):
         def _updateTheme():
@@ -374,38 +529,35 @@ if __name__ == '__main__':
     app.processEvents()
 
     loadConfig()
-    launchwindow.push('Loading config...')
+    launchwindow.subtitle('Loading config...')
 
-    launchwindow.push('Loading fonts...')
+    launchwindow.subtitle('Loading fonts...')
     harmony_font_family = _ims.QFontDatabase.applicationFontFamilies(
         _ims.QFontDatabase.addApplicationFont('fonts/HARMONYOS_SANS_SC_REGULAR.ttf')
     )[0]
 
-    launchwindow.push('Initializing services...')
+    launchwindow.subtitle('Initializing services...')
 
-    launchwindow.push('Loading favorites...')
+    launchwindow.subtitle('Loading favorites...')
     favorites_manager.load()
 
-    launchwindow.push('Logging in...')
+    launchwindow.subtitle('Logging in...')
     if cfg.session is None:
-        apis.login.loginViaAnonymousAccount()
-        sstr = ncm.dumpSessionAsString(apis.getCurrentSession())
-        cfg.session = sstr
-        cfg.login_status = apis.login.getCurrentLoginStatus()  # type: ignore
+        snapshot = backend.loginViaAnonymousAccount()
+        cfg.session = snapshot.session
+        cfg.login_status = snapshot.login_status
         _logger.info('logged into generated anonymous account')
     else:
-        ncm.setCurrentSession(ncm.loadSessionFromString(cfg.session))
+        backend.loadSession(cfg.session)
         _logger.info('loaded session from config')
 
         if (
             cfg.login_method == 'cell phone' or cfg.login_method == 'QR code'
         ) and cfg.login_status:
-            apis.login.writeLoginInfo(cfg.login_status)
+            backend.writeLoginInfo(cfg.login_status)
             _logger.info('wrote login info')
 
-    csession = ncm.getCurrentSession()
-    csession.deviceId = uuid.uuid4().hex
-    ncm.setCurrentSession(csession)
+    backend.setRandomDeviceId()
 
     launchwindow.clear()
     launchwindow.subtitle('Phase 2 (initialize components...)')
@@ -429,40 +581,41 @@ if __name__ == '__main__':
 
     launchwindow.subtitle('Preparing (checking dependences...)')
     depwindow = DependencesWindow(ctx)
+    ctx.dependences_window = depwindow
 
     def _postStageInit():
         global mwindow
 
         if not launchwindow:
             return
-        launchwindow.push('Initializing events services...')
+        launchwindow.subtitle('Initializing events services...')
         ctx.events_service = EventsServices(ctx)
 
-        launchwindow.push('Initializing debug window...')
+        launchwindow.subtitle('Initializing debug window...')
         dw = Debugging(ctx)
         ctx.debugging_obj = dw
-        launchwindow.push('Initializing playing page...')
+        launchwindow.subtitle('Initializing playing page...')
         dp = PlayingPage(ctx)
         ctx.playing_page = dp
-        launchwindow.push('Initializing search page...')
+        launchwindow.subtitle('Initializing search page...')
         sp = SearchPage(ctx)
         ctx.search_page = sp
-        launchwindow.push('Initializing desktop lyrics page...')
+        launchwindow.subtitle('Initializing desktop lyrics page...')
         dsp = DesktopLyricsPage(ctx)
         ctx.desktop_lyrics_page = dsp
-        launchwindow.push('Initializing favorites page...')
+        launchwindow.subtitle('Initializing favorites page...')
         fp = FavoritesPage(ctx)
         ctx.favorites_page = fp
-        launchwindow.push('Initializing setting page...')
+        launchwindow.subtitle('Initializing setting page...')
         stp = SettingPage(ctx)
         ctx.setting_page = stp
-        launchwindow.push('Initializing playlist page...')
+        launchwindow.subtitle('Initializing playlist page...')
         plp = PlaylistPage(ctx)
         ctx.playlist_page = plp
-        launchwindow.push('Initializing home page...')
+        launchwindow.subtitle('Initializing home page...')
         hp = HomePage(ctx)
         ctx.home_page = hp
-        launchwindow.push('Initializing library page...')
+        launchwindow.subtitle('Initializing library page...')
         lrp = LibraryPage(ctx)
         ctx.library_page = lrp
 
@@ -477,7 +630,7 @@ if __name__ == '__main__':
 
         ctx.process_pids['main'] = os.getpid()
 
-        launchwindow.push('Initializing main window...')
+        launchwindow.subtitle('Initializing main window...')
         mwindow = MainWindow(ctx)
         ctx.main_window = mwindow
 
@@ -485,12 +638,14 @@ if __name__ == '__main__':
 
         fp.refresh()
 
-        print(ncm.getCurrentSession().bindings)
+        print(backend.getSessionBindings())
 
         _ims.QTimer.singleShot(2000, lambda: startUpdateCheck(mwindow))  # type: ignore
 
         _logger.debug(f'{sys.path=}')
 
-    depwindow.allChecked.connect(_postStageInit)
+    depwindow.destroyed.connect(
+        lambda _obj=None: _ims.QTimer.singleShot(0, _postStageInit)
+    )
 
     app.exec()

@@ -21,7 +21,6 @@ from core.models import (
     SongStorable,
 )
 from imports import QApplication, QCheckBox, QComboBox, QThread, QWidget, event_bus, tr
-import pyncm
 from services.events.events import FAVORITES_CHANGED, MWINDOW_REFRESH_FOLDERS
 from views.number_viewer import SettableNumberViewer
 
@@ -888,7 +887,7 @@ class LLMToolRunner:
             target.refreshContentHeight()
             scroller = self.ctx.setting_page.scroller
             card_y = card.mapTo(
-                self.ctx.setting_page.options_widget, card.rect().topLeft()
+                self.ctx.setting_page.options_widget, card.rect().subtitleLeft()
             ).y()
             center = card_y - scroller.viewport().height() // 2 + card.height() // 2
             bar = scroller.verticalScrollBar()
@@ -990,11 +989,11 @@ class LLMToolRunner:
         return self._run_main_thread(self._get_nickname)
 
     def _get_nickname(self) -> dict[str, Any]:
-        backend = getBackend()
+        account = getBackend().getAccountInfo()
         return {
-            'logged_in': not backend.loggedIn(),
-            'nickname': pyncm.getCurrentSession().nickname,
-            'vip_level': pyncm.getCurrentSession().vipType,
+            'logged_in': account.logged_in,
+            'nickname': account.nickname,
+            'vip_level': account.vip_type,
         }
 
     def _get_llm_providers(self) -> dict[str, Any]:

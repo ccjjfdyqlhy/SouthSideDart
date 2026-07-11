@@ -324,6 +324,7 @@ class PlayingController(QWidget):
         self._last_ws_lyric_send = 0.0
         self._last_ws_fft_send = 0.0
         self._draw_current_x = 0
+        self._prepared_lead_width = 0
         self._prepared_draw_end_x = 0
         self._overlay_alpha = 0
         self._draw_fft = False
@@ -441,15 +442,22 @@ class PlayingController(QWidget):
         )
 
         if song:
-            pixmap = QPixmap.fromImage(QImage.fromData(song.getImageBytes()))
-            pixmap = pixmap.scaled(
-                self.height(),
-                self.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.cover_label.setPixmap(pixmap)
+            try:
+                qimg = QImage.fromData(song.getImageBytes())
+            except FileNotFoundError:
+                qimg = QImage()
 
+            if qimg.isNull():
+                self.cover_label.clear()
+            else:
+                pixmap = QPixmap.fromImage(qimg)
+                pixmap = pixmap.scaled(
+                    self.height(),
+                    self.height(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.cover_label.setPixmap(pixmap)
             self.song_title_label.setText(song.name)
 
         self.update()
@@ -546,6 +554,11 @@ class PlayingController(QWidget):
             else:
                 self.overlay_alpha_timer.target_value = 60
             self._overlay_alpha = int(self.overlay_alpha_timer.current_value)
+            length = self.ctx.playing_manager.getDisplayLength()
+            if length > 0:
+                self._prepared_lead_width = int( progress_width * 
+                    self.ctx.playing_manager.getDisplayPreparedLead() / length
+                )
             self._sendDrawPosition(draw_ratio)
 
         if self._mwindow and self._mwindow.isVisible():
@@ -815,6 +828,20 @@ class PlayingController(QWidget):
                 0,
                 0,
                 self._prepared_draw_end_x,
+                0,
+            )
+            painter.setPen(
+                QPen(
+                    QColor(255, 255, 255, 80)
+                    if isDark
+                    else QColor(0, 0, 0, 80),
+                    8,
+                )
+            )
+            painter.drawLine(
+                0,
+                0,
+                self._draw_current_x + self._prepared_lead_width,
                 0,
             )
 

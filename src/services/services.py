@@ -30,8 +30,6 @@ from imports import (
     event_bus,
     tr,
 )
-import pyncm as ncm
-from pyncm import apis
 from core import theme
 from core.favorites import favorites_manager
 
@@ -245,21 +243,11 @@ class EventsServices(QObject):
         def _loop() -> None:
             while not _stop_event.wait(60):
                 try:
-                    session = ncm.getCurrentSession()
-                    bindings = session.bindings
-                    if not bindings:
-                        continue
-
-                    now = time.time()
-                    need_refresh = any(
-                        b.get('expiresIn', 0) - now <= 300 for b in bindings
-                    )
-
-                    if need_refresh:
+                    snapshot = getBackend().refreshSessionIfNeeded()
+                    if snapshot is not None:
                         _logger.info('session token near expiry, refreshing...')
-                        apis.login.loginRefreshToken()
-                        cfg.session = ncm.dumpSessionAsString(session)
-                        cfg.login_status = apis.login.getCurrentLoginStatus()
+                        cfg.session = snapshot.session
+                        cfg.login_status = snapshot.login_status
                         saveConfig()
                         _logger.info('session token refreshed and saved')
                 except Exception:

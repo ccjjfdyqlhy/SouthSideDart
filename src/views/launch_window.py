@@ -1,20 +1,27 @@
 from __future__ import annotations
 
-from imports import LANGUAGE_CHANGED, Qt
-from imports import QLabel, QVBoxLayout, QWidget, event_bus, tr
+from imports import (
+    QApplication,
+    IndeterminateProgressBar,
+    QLabel,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+    Qt,
+    SubtitleLabel,
+    tr,
+)
 from qfluentwidgets import TitleLabel
 import hPyT
 
 from core import theme
-import time
-
-from core.dialogs import SubtitleLabel
 
 
 class LaunchWindow(QWidget):
-    def __init__(self, app):
+    def __init__(self, app: QApplication) -> None:
         super().__init__()
-        self._app = app
+        self._app: QApplication = app
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -30,55 +37,32 @@ class LaunchWindow(QWidget):
             TitleLabel('Southside Music'),
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
         )
-        self.subtitlel = SubtitleLabel('')
-        launchlayout.addWidget(
-            self.subtitlel,
-            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-        )
-        self.sublabel = QLabel(tr('launch_window.launching'))
+        self.sublabel = SubtitleLabel(tr('launch_window.launching'))
         launchlayout.addWidget(
             self.sublabel,
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
         )
+        launchlayout.addSpacerItem(
+            QSpacerItem(
+                0,
+                0,
+                QSizePolicy.Policy.Ignored,
+                QSizePolicy.Policy.Expanding,
+            )
+        )
+        self.subtitlel = QLabel()
+        launchlayout.addWidget(self.subtitlel)
+        launchlayout.addWidget(IndeterminateProgressBar())
         self.setLayout(launchlayout)
 
         self.setStyleSheet(
-            f'QWidget {{ background-color: {"#FFFFFF" if theme.isLight() else "#000000"} }} QLabel {{ color: {"white" if theme.isDark() else "black"}; }}'
+            f'QWidget {{ background-color: {"#DDDDDD" if theme.isLight() else "#111111"} }} QLabel {{ color: {"white" if theme.isDark() else "black"}; }}'
         )
 
         self.show()
-        event_bus.subscribe(LANGUAGE_CHANGED, self.updateLabel)
 
-    def push(self, text: str):
-        self._stack.append(text)
-        self.updateLabel()
+    def subtitle(self, text: str) -> None:
+        self.subtitlel.setText(text)
 
-    def top(self, text: str):
-        self.push(text)
-
-    def pop(self):
-        if len(self._stack) > 0:
-            self._stack.pop()
-            self.updateLabel()
-
-    def subtitle(self, text: str):
-        self.subtitlel.setText(tr(text))
-        self.push(text)
-        time.sleep(0.05)
-
-    def clear(self):
+    def clear(self) -> None:
         pass
-
-    def updateLabel(self):
-        text = (
-            '\n'.join(self._stack[-5:])
-            if len(self._stack) > 5
-            else '\n'.join(self._stack)
-        )
-        if len(self._stack) > 5:
-            text = '...\n' + text
-        if not text:
-            text = 'Launching...'
-        text = '\n'.join(tr(line) for line in text.split('\n'))
-        self.sublabel.setText(text)
-        self._app.processEvents()

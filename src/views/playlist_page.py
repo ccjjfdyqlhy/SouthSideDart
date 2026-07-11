@@ -58,7 +58,7 @@ class PlaylistPage(QWidget):
         self._logger = logging.getLogger(__name__)
         self.ctx = ctx
         if ctx.launch_window:
-            ctx.launch_window.top(tr('playlist_page.initializing_sidebar'))
+            ctx.launch_window.subtitle(tr('playlist_page.initializing_sidebar'))
             self._launchwindow = ctx.launch_window
         else:
             self._launchwindow = None

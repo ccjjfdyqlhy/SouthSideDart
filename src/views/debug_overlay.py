@@ -68,6 +68,8 @@ class DebugOverlay(QWidget):
 
         self.offset_timer = EaseOutTimer(0.3, 2)
 
+        self.last_update_cpu = -1
+
         event_bus.subscribe(REPAINT, self.refresh)
 
     def showEvent(self, event: QShowEvent) -> None:
@@ -89,7 +91,9 @@ class DebugOverlay(QWidget):
         pids = self._activeProcessPids()
         self._clearStaleProcessData(pids)
         self.updateMemories(pids)
-        self.updateCpus(pids)
+        if time.perf_counter() - self.last_update_cpu >= 0.2:
+            self.updateCpus(pids)
+            self.last_update_cpu = time.perf_counter()
 
     def _processPids(self) -> dict[str, int]:
         pids = dict(self.ctx.process_pids)

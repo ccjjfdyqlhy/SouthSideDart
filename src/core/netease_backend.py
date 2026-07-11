@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.parse
+import uuid
 from typing import Any, Literal
 
 import pyncm
@@ -11,7 +13,10 @@ from pyncm import apis
 from core.models import (
     AlbumInfo,
     ArtistInfo,
+    BackendAccountInfo,
+    BackendSessionSnapshot,
     CloudFolderInfo,
+    LoginQRCodeInfo,
     MusicServiceBackend,
     PrivilegeInfo,
     SearchSongInfo,
@@ -28,6 +33,153 @@ _logger = logging.getLogger(__name__)
 
 
 class NeteaseCloudMusicBackend(MusicServiceBackend):
+    def _sessionSnapshot(self) -> BackendSessionSnapshot:
+        return BackendSessionSnapshot(
+            session=self.dumpSession(),
+            login_status=self.getCurrentLoginStatus(),
+        )
+
+    def getCurrentLoginStatus(self) -> dict:
+        status = apis.login.getCurrentLoginStatus()
+        assert isinstance(status, dict), 'Invalid login status response'
+        return status
+
+    def writeLoginInfo(self, login_status: dict | None) -> None:
+        if login_status is None:
+            return
+        apis.login.writeLoginInfo(login_status)
+
+    def currentSessionIsAnonymous(self) -> bool:
+        return bool(pyncm.getCurrentSession().is_anonymous)
+
+    def loadSession(self, session: str) -> None:
+        pyncm.setCurrentSession(pyncm.loadSessionFromString(session))
+
+    def dumpSession(self) -> str:
+        return pyncm.dumpSessionAsString(pyncm.getCurrentSession())
+
+    def loginViaAnonymousAccount(self) -> BackendSessionSnapshot:
+        apis.login.loginViaAnonymousAccount()
+        return self._sessionSnapshot()
+
+    def setRandomDeviceId(self) -> None:
+        session = pyncm.getCurrentSession()
+        session.deviceId = uuid.uuid4().hex
+        pyncm.setCurrentSession(session)
+
+    def getSessionBindings(self) -> list[dict[str, Any]]:
+        bindings = pyncm.getCurrentSession().bindings
+        return [binding for binding in bindings if isinstance(binding, dict)]
+
+    def refreshSessionIfNeeded(
+        self, expiry_window_seconds: int = 300
+    ) -> BackendSessionSnapshot | None:
+        session = pyncm.getCurrentSession()
+        bindings = session.bindings
+        if not bindings:
+            return None
+
+        now = time.time()
+        need_refresh = any(
+            binding.get('expiresIn', 0) - now <= expiry_window_seconds
+            for binding in bindings
+            if isinstance(binding, dict)
+        )
+        if not need_refresh:
+            return None
+
+        apis.login.loginRefreshToken()
+        return self._sessionSnapshot()
+
+    def getAccountInfo(self) -> BackendAccountInfo:
+        session = pyncm.getCurrentSession()
+        login_status = self.getCurrentLoginStatus()
+        user_id: int | str | None = None
+        avatar_url = ''
+        nickname = ''
+
+        if isinstance(login_status, dict):
+            account = login_status.get('account')
+            if isinstance(account, dict):
+                user_id = account.get('id')
+                account_name = account.get('userName') or account.get('nickname')
+                if isinstance(account_name, str) and account_name.strip():
+                    nickname = account_name.strip()
+
+            profile = login_status.get('profile')
+            if isinstance(profile, dict):
+                profile_name = profile.get('nickname')
+                if isinstance(profile_name, str) and profile_name.strip():
+                    nickname = profile_name.strip()
+                profile_avatar = profile.get('avatarUrl')
+                if isinstance(profile_avatar, str):
+                    avatar_url = profile_avatar
+
+        if user_id is not None:
+            detail = apis.user.getUserDetail(user_id)
+            if isinstance(detail, dict):
+                profile = detail.get('profile')
+                if isinstance(profile, dict):
+                    detail_name = profile.get('nickname')
+                    if isinstance(detail_name, str) and detail_name.strip():
+                        nickname = detail_name.strip()
+                    detail_avatar = profile.get('avatarUrl')
+                    if isinstance(detail_avatar, str):
+                        avatar_url = detail_avatar
+
+        session_name = session.nickname
+        if isinstance(session_name, str) and session_name.strip():
+            nickname = session_name.strip()
+
+        return BackendAccountInfo(
+            user_id=user_id,
+            nickname=nickname,
+            avatar_url=avatar_url,
+            logged_in=self.loggedIn(),
+            vip_type=self.getUserVipType(),
+        )
+
+    def logout(self) -> BackendSessionSnapshot:
+        apis.login.loginLogout()
+        pyncm.setCurrentSession(pyncm.createNewSession())
+        return BackendSessionSnapshot(session=self.dumpSession(), login_status=None)
+
+    def createLoginQRCode(self) -> LoginQRCodeInfo:
+        data = apis.login.loginQrcodeUnikey()
+        assert isinstance(data, dict), 'Invalid QR login key response'
+        key = str(data['unikey'])
+        return LoginQRCodeInfo(key=key, url=apis.login.getLoginQRCodeUrl(key))
+
+    def checkLoginQRCode(self, key: str) -> int:
+        response = apis.login.loginQrcodeCheck(key)
+        assert isinstance(response, dict), 'Invalid QR login check response'
+        code = int(response.get('code', 0))
+        if code == 803:
+            self.writeLoginInfo(self.getCurrentLoginStatus())
+        return code
+
+    def sendCellphoneVerificationCode(self, phone: str, ctcode: int = 86) -> bool:
+        response = apis.login.setSendRegisterVerificationCodeViaCellphone(
+            phone, ctcode
+        )
+        assert isinstance(response, dict), 'Invalid cellphone code response'
+        return response.get('code', 0) == 200
+
+    def verifyCellphoneVerificationCode(
+        self, phone: str, captcha: str, ctcode: int = 86
+    ) -> bool:
+        response = apis.login.getRegisterVerificationStatusViaCellphone(
+            phone, captcha, ctcode
+        )
+        assert isinstance(response, dict), 'Invalid cellphone verify response'
+        return response.get('code', 0) == 200
+
+    def loginViaCellphone(
+        self, phone: str, captcha: str, ctcode: int = 86
+    ) -> BackendSessionSnapshot:
+        apis.login.loginViaCellphone(phone, captcha=captcha, ctcode=ctcode)
+        return self._sessionSnapshot()
+
     def _songStorableFromApiSong(self, song: dict[str, Any]) -> SongStorable | None:
         if not song:
             return None
@@ -462,7 +614,7 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                     result.append(song)
             return result
 
-    def recordPlayed(self, song_id: str, song_name: str, time: float):
+    def recordPlayed(self, song_id: str, song_name: str, time: float) -> None:
         apis.user.setWeblog(
             {
                 'action': 'play',
@@ -482,7 +634,7 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             }
         )
 
-    def recordPlay(self, song_id: str):
+    def recordPlay(self, song_id: str) -> None:
         apis.user.setWeblog(
             {
                 'action': 'startplay',

@@ -1,50 +1,88 @@
 @echo off
-title Building
+echo Building
 
-RD /S /Q build.result 2>nul
-RD /S /Q *.dist 2>nul
+RD /S /Q build.result >nul
+RD /S /Q *.dist >nul
 
-title Building - Nuitka
+echo Building - Nuitka
 call build_venv\Scripts\python.exe -m nuitka launcher.py --windows-console-mode=hide --output-filename=Launch --standalone --windows-icon-from-ico=icons\app.ico
 
-mkdir build.result 2>nul
-title Building - Copy launcher.dist
-xcopy .\launcher.dist .\build.result\raw /E /I /Y
-title Building - Copy embed_python
-xcopy .\embed_python .\build.result\raw\python /E /I /Y
-title Building - Copy free-threaded Python
-if exist .python-ft-pyside-blocked (
-    xcopy .python-ft-pyside-blocked .\build.result\raw\.python-ft-pyside-blocked /E /I /Y
+mkdir build.result >nul
+echo Building - Copy launcher.dist
+xcopy .\launcher.dist .\build.result\raw /E /I /Y /Q /J >nul
+echo Building - Copy embed_python
+xcopy .\embed_python .\build.result\raw\python /E /I /Y /Q /J >nul
+echo Building - Copy free-threaded Python
+if exist freethreaded_python (
+    xcopy freethreaded_python .\build.result\raw\freethreaded_python /E /I /Y /Q /J >nul
 )
-title Building - Copy src
-xcopy .\src .\build.result\raw\src /E /I /Y
-title Building - Copy fonts
-xcopy .\fonts .\build.result\raw\fonts /E /I /Y
-title Building - Copy icons
-xcopy .\icons .\build.result\raw\icons /E /I /Y
-title Building - Copy images
-xcopy .\images .\build.result\raw\images /E /I /Y
+echo Building - Copy src
+xcopy .\src .\build.result\raw\src /E /I /Y /Q /J >nul
+echo Building - Copy fonts
+xcopy .\fonts .\build.result\raw\fonts /E /I /Y /Q /J >nul
+echo Building - Copy icons
+xcopy .\icons .\build.result\raw\icons /E /I /Y /Q /J >nul
+echo Building - Copy images
+xcopy .\images .\build.result\raw\images /E /I /Y /Q /J >nul
 
 copy .\pyproject.toml .\build.result\raw\pyproject.toml
 copy .\bootstrap.py .\build.result\raw\bootstrap.py
 copy .\full_requirements.txt .\build.result\raw\full_requirements.txt
 
-title Building - Remove unneeded files
-RD /S /Q "build.result\raw\python\Lib\site-packages\__pycache__" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\*.dist-info" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\*.egg-info" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\tests" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\test" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\docs" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\examples" 2>nul
-RD /S /Q "build.result\raw\python\Lib\site-packages\PySide6\*.pdb" 2>nul
-RD /S /Q "build.result\raw\python\Lib\__pycache__" 2>nul
-del /S /Q "build.result\raw\python\Lib\site-packages\*.pyc" 2>nul
+echo Building - Remove unneeded files
+RD /S /Q "build.result\raw\python\Lib\site-packages\__pycache__" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\*.dist-info" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\*.egg-info" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\tests" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\test" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\docs" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\examples" >nul
+RD /S /Q "build.result\raw\python\Lib\site-packages\PySide6\*.pdb" >nul
+RD /S /Q "build.result\raw\python\Lib\__pycache__" >nul
+del /S /Q "build.result\raw\python\Lib\site-packages\*.pyc" >nul
+if exist "build.result\raw\freethreaded_python" (
+    RD /S /Q "build.result\raw\freethreaded_python\include" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\libs" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\tcl" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\test" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\idlelib" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\tkinter" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\__pycache__" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\audioop" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\bin" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\numpy" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\numpy.libs" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\PIL" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\pydub" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\scipy" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\scipy.libs" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\psutil" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\PySide6" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\qfluentwidgets" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\qframelesswindow" >nul
+    RD /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\shiboken6" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\audioop_lts-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\numpy-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pillow-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pydub-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\scipy-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\psutil-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pyside6-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pyside6_addons-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pyside6_essentials-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pyside6_fluent_widgets-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\pysidesix_frameless_window-*.dist-info") do RD /S /Q "%%~fd" >nul
+    for /D %%d in ("build.result\raw\freethreaded_python\Lib\site-packages\shiboken6-*.dist-info") do RD /S /Q "%%~fd" >nul
+    del /S /Q "build.result\raw\freethreaded_python\*.pdb" >nul
+    del /S /Q "build.result\raw\freethreaded_python\Lib\site-packages\*.pyc" >nul
+    del /Q "build.result\raw\freethreaded_python\Lib\site-packages\*.whl" >nul
+    del /Q "build.result\raw\freethreaded_python\Lib\site-packages\README.txt" >nul
+)
 
-title Building - Generate icon
+echo Building - Generate icon
 call python scripts\create_icon.py
 
-title Building - Locate Inno Setup
+echo Building - Locate Inno Setup
 set ISCC=
 for /f "skip=1 tokens=2,*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 7_is1" /v "InstallLocation" 2^>nul ^| findstr /i "REG_"') do set "ISCC=%%b\ISCC.exe"
 if not defined ISCC (
@@ -70,7 +108,7 @@ if not defined ISCC (
     ) do if exist %%p set "ISCC=%%~p"
 )
 
-title Building - Inno Setup installer
+echo Building - Inno Setup installer
 if defined ISCC (
     call "%ISCC%" installer.iss
 ) else (
@@ -80,11 +118,11 @@ if defined ISCC (
     echo        Skipping installer build. Raw files are in build.result\raw\
 )
 
-title Building - Cleanup
-RD /S /Q launcher.dist 2>nul
-RD /S /Q launcher.build 2>nul
-RD /S /Q launcher.onefile-build 2>nul
+echo Building - Cleanup
+RD /S /Q launcher.dist >nul
+RD /S /Q launcher.build >nul
+RD /S /Q launcher.onefile-build >nul
 
 echo Done!
-title Done
+echo Done
 pause

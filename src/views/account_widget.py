@@ -29,9 +29,6 @@ from imports import (
 )
 from qfluentwidgets import InfoBar
 
-import pyncm as ncm
-from pyncm import apis
-
 
 class AccountWidget(QWidget):
     loginChanged = Signal()
@@ -80,22 +77,14 @@ class AccountWidget(QWidget):
         if os.path.exists('images/avatar.png'):
             os.remove('images/avatar.png')
 
-        try:
-            session = ncm.getCurrentSession()
-        except Exception as e:
-            self._logger.warning(f'Failed to get session: {e}')
-            session = None
+        backend = getBackend()
+        account = None
 
         try:
-            login_status = apis.login.getCurrentLoginStatus()
-            if (
-                login_status
-                and 'account' in login_status
-                and 'id' in login_status['account']  # type: ignore
-            ):
-                detail = apis.user.getUserDetail(login_status['account']['id'])  # type: ignore
-                self._logger.debug(f'{detail['profile']['avatarUrl']=}')  # type: ignore
-                avatar_url = detail['profile']['avatarUrl']  # type: ignore
+            account = backend.getAccountInfo()
+            if account.avatar_url:
+                self._logger.debug(f'{account.avatar_url=}')
+                avatar_url = account.avatar_url
                 avatar_data = requests.get(avatar_url).content
                 with open('images/avatar.png', 'wb') as f:
                     f.write(avatar_data)
@@ -103,17 +92,8 @@ class AccountWidget(QWidget):
             self._logger.warning(f'Failed to fetch user detail or avatar: {e}')
 
         nickname = 'Anonymous User'
-        if session is not None:
-            try:
-                nick = getattr(session, 'nickname', None)
-                if nick and isinstance(nick, str) and nick.strip():
-                    nickname = nick.strip()
-                if cfg.login_status:
-                    nick = getattr(cfg.login_status.get('account'), 'userName', None)
-                    if nick and isinstance(nick, str) and nick.strip():
-                        nickname = nick.strip()
-            except Exception as e:
-                self._logger.warning(f'Failed to get nickname: {e}')
+        if account is not None and account.nickname.strip():
+            nickname = account.nickname.strip()
         self._nickname = nickname
         self.nickname_label.setText(
             tr('main_window.anonymous_user')
@@ -129,9 +109,9 @@ class AccountWidget(QWidget):
             self.avatar_widget.setPixmap(pixmap)
 
     def logout(self) -> None:
-        apis.login.loginLogout()
-        ncm.setCurrentSession(ncm.createNewSession())
-        cfg.session = ncm.dumpSessionAsString(ncm.getCurrentSession())
+        snapshot = getBackend().logout()
+        cfg.session = snapshot.session
+        cfg.login_status = snapshot.login_status
         saveConfig()
 
         self.refreshLoginInformations()
@@ -164,16 +144,16 @@ class AccountWidget(QWidget):
         if method == 'QR Code':
             self._logger.info('start logging in(via QRCode)')
 
-            key: str = apis.login.loginQrcodeUnikey()['unikey']  # type: ignore
-            self._logger.debug(f'{key=}')
+            qrcode_info = getBackend().createLoginQRCode()
+            self._logger.debug(f'{qrcode_info.key=}')
+            self._logger.debug(f'{qrcode_info.url=}')
 
-            url = apis.login.getLoginQRCodeUrl(key)
-            self._logger.debug(f'{url=}')
-
-            msgbox = QRCodeLoginDialog(self._mwindow, url, key, logging)
+            msgbox = QRCodeLoginDialog(
+                self._mwindow, qrcode_info.url, qrcode_info.key, logging
+            )
             if msgbox.exec():
-                cfg.session = ncm.dumpSessionAsString(ncm.getCurrentSession())
-                cfg.login_status = apis.login.getCurrentLoginStatus()  # type: ignore
+                cfg.session = getBackend().dumpSession()
+                cfg.login_status = getBackend().getCurrentLoginStatus()
                 cfg.login_method = 'QR code'
         elif method == 'Cell Phone':
             self._logger.info('start logging in(via cell phone)')
@@ -186,8 +166,8 @@ class AccountWidget(QWidget):
             if not phone:
                 return
 
-            result = apis.login.setSendRegisterVerificationCodeViaCellphone(phone, 86)
-            assert result.get('code', 0) == 200, 'Invaild response'  # type: ignore
+            result = getBackend().sendCellphoneVerificationCode(phone, 86)
+            assert result, 'Invaild response'
             while True:
                 captcha = getTextLineedit(
                     tr('main_window.verification_code_sent'),
@@ -197,17 +177,15 @@ class AccountWidget(QWidget):
                 )
                 if len(captcha) != 4:
                     continue
-                verified = apis.login.getRegisterVerificationStatusViaCellphone(
+                verified = getBackend().verifyCellphoneVerificationCode(
                     phone, captcha, 86
                 )
-                if verified.get('code', 0) == 200:  # type: ignore
+                if verified:
                     break
 
-            apis.login.loginViaCellphone(phone, captcha=captcha, ctcode=86)
-
-            csession = ncm.getCurrentSession()
-            cfg.session = ncm.dumpSessionAsString(csession)
-            cfg.login_status = apis.login.getCurrentLoginStatus()
+            snapshot = getBackend().loginViaCellphone(phone, captcha, 86)
+            cfg.session = snapshot.session
+            cfg.login_status = snapshot.login_status
             cfg.login_method = 'cell phone'
 
         InfoBar.success(

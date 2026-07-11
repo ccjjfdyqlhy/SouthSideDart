@@ -19,6 +19,9 @@ from core import theme
 from imports import (
     ProgressBar,
     PushButton,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
     QSizePolicy,
     QSpacerItem,
     QTimer,
@@ -46,6 +49,7 @@ class DependencesWindow(QWidget):
         super().__init__()
         self.ctx = ctx
         self._results: dict[str, bool] = {}
+        self._retracting = False
         self.logger = logging.getLogger(__name__)
 
         self.checkDone.connect(self._onCheckDone, Qt.ConnectionType.QueuedConnection)
@@ -58,7 +62,7 @@ class DependencesWindow(QWidget):
             Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint
         )
         self.setStyleSheet(
-            f'background-color: {"black" if theme.isDark() else "white"};'
+            f'background-color: {"#111111" if theme.isDark() else "#DDDDDD"};'
         )
 
         layout = QVBoxLayout()
@@ -100,13 +104,20 @@ class DependencesWindow(QWidget):
             )
         )
 
-        self.setLayout(layout)
+        self.geo_ani = QPropertyAnimation(self, b'pos', self)
+        self.geo_ani.setDuration(275)
+        self.geo_ani.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.geo_ani.finished.connect(self._onGeometryAnimationFinished)
 
+        self.setLayout(layout)
+        self.setFixedSize(self.ctx.launch_window.size())
+        self.move(self.ctx.launch_window.pos())
         self.show()
 
-        self.updatePosition()
-        QTimer.singleShot(300, self.startCheck)
         self.ctx.app.processEvents()
+        self.ctx.launch_window.raise_()
+
+        QTimer.singleShot(500, self.startCheck)
 
     def downloadFFmpeg(self):
         self.ffmpeg_btn.setEnabled(False)
@@ -287,32 +298,63 @@ class DependencesWindow(QWidget):
             and all(self._results.values())
         ):
             self.ctx.dependences_available = True
+            self._retracting = True
             self.allChecked.emit()
-            QTimer.singleShot(500, self.close)
 
         if name == 'FFmpeg' and not ok:
             self.ffmpeg_btn.show()
 
         self.updatePosition()
-        self.ctx.app.processEvents()
 
     def updatePosition(self) -> None:
-        if (
+        screen_size = self.ctx.app.primaryScreen().size()
+        target_point = None
+        if self._retracting:
+            if self.ctx.launch_window is not None and shiboken6.isValid(
+                self.ctx.launch_window
+            ):
+                target_point = self.ctx.launch_window.pos()
+        elif (
             len(self._results) == 5
             and self.ctx is not None
             and not all(self._results.values())
         ):
-            hPyT.window_frame.center(self)
+            self.raise_()
+            target_point = QPoint(
+                int((screen_size.width() - self.width()) * 0.5),
+                int((screen_size.height() - self.height()) * 0.5),
+            )
         else:
-            center_x = self.ctx.app.primaryScreen().availableGeometry().center().x()
-            center_y = self.ctx.app.primaryScreen().availableGeometry().center().y()
             if self.ctx.launch_window is not None and shiboken6.isValid(
                 self.ctx.launch_window
             ):
-                self.move(
-                    int(center_x + self.ctx.launch_window.width() / 2),
-                    int(center_y - self.height() / 2),
+                target_point = QPoint(
+                    self.ctx.launch_window.x() + self.ctx.launch_window.width(),
+                    self.ctx.launch_window.y(),
                 )
+        if target_point is None:
+            return
+        if self.pos() == target_point:
+            if self._retracting:
+                QTimer.singleShot(0, self._onGeometryAnimationFinished)
+            return
+        if (
+            self.geo_ani.state() == QPropertyAnimation.State.Running
+            and self.geo_ani.endValue() == target_point
+        ):
+            return
+        if self.geo_ani.state() == QPropertyAnimation.State.Running:
+            self.geo_ani.stop()
+        self.geo_ani.setStartValue(self.pos())
+        self.geo_ani.setEndValue(target_point)
+        self.geo_ani.start()
+
+    def _onGeometryAnimationFinished(self) -> None:
+        if not self._retracting:
+            return
+        self._retracting = False
+        self.hide()
+        self.deleteLater()
 
     def checkFFmpeg(self) -> None:
         try:
@@ -330,7 +372,7 @@ class DependencesWindow(QWidget):
             )
             self.logger.info(f'FFmpeg found version: {version}')
             self._addFfmpegToPath(os.path.join(base_dir, 'ffmpeg'))
-            self.checkDone.emit('FFmpeg', True, version)
+            self.checkDone.emit('FFmpeg', True, '')
         except Exception as e:
             self.logger.warning(f'FFmpeg not found: {e}')
             self.checkDone.emit('FFmpeg', False, str(e))
@@ -393,18 +435,14 @@ class DependencesWindow(QWidget):
             self.checkDone.emit('OpenGL', False, str(e))
 
     def startCheck(self) -> None:
-        threads: list[Thread] = []
-        threads.append(Thread(target=self.checkFFmpeg, daemon=True))
-        threads.append(Thread(target=self.checkRuntime, daemon=True))
-        threads.append(Thread(target=self.checkAudio, daemon=True))
-        threads.append(Thread(target=self.checkNetwork, daemon=True))
-        threads.append(Thread(target=self.checkOpenGL, daemon=True))
+        self.updatePosition()
 
-        for thread in threads:
-            thread.start()
-            self.updatePosition()
-            self.ctx.app.processEvents()
-        for thread in threads:
-            thread.join()
-            self.updatePosition()
-            self.ctx.app.processEvents()
+        for check in (
+            self.checkFFmpeg,
+            self.checkRuntime,
+            self.checkAudio,
+            self.checkNetwork,
+        ):
+            Thread(target=check, daemon=True).start()
+
+        QTimer.singleShot(0, self.checkOpenGL)

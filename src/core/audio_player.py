@@ -55,6 +55,9 @@ _PRODUCER_EARLY_IDLE_LEAD = 8.0
 _PRODUCER_LATE_LEAD = 90.0
 _PRODUCER_LATE_STRESSED_LEAD = 25.0
 _PRODUCER_LATE_IDLE_LEAD = 120.0
+_PRODUCER_REFILL_RATIO = 0.75
+_PRODUCER_MIN_REFILL_LEAD = 2.0
+_PRODUCER_YIELD_BLOCKS = 32
 
 
 class _MemoryStatus(ctypes.Structure):
@@ -382,7 +385,7 @@ class AudioPlayer(QObject):
         self.play_speed = cfg.play_speed
         self.play_pitch = cfg.play_pitch
 
-        self._BLOCK_SIZE = 2048
+        self._BLOCK_SIZE = 4096
 
         self._audio_queue: Queue[tuple[np.ndarray, int] | None] = Queue(
             maxsize=_PRODUCER_QUEUE_BLOCKS
@@ -397,6 +400,8 @@ class AudioPlayer(QObject):
         self._producer_memory_load: float = 0.0
         self._producer_target_lead: float = _PRODUCER_EARLY_LEAD
         self._producer_last_resource_sample = 0.0
+        self._queue_underruns = 0
+        self._output_underflows = 0
         self._wsola_output_buffer: np.ndarray | None = None
         self._wsola_tail: np.ndarray | None = None
         self._wsola_buffer_start_index: float = 0.0
@@ -464,10 +469,13 @@ class AudioPlayer(QObject):
                 f'audio_qsize={self._audio_queue.qsize()}',
                 f'fft_qsize={self.fft_queue.qsize()}',
                 f'producer_running={self._producer_running}',
+                f'producer_thread_alive={self._producerThreadAlive()}',
                 f'producer_cpu_load={self._producer_cpu_load:.1f}',
                 f'producer_memory_load={self._producer_memory_load:.1f}',
                 f'producer_target_lead={self._producer_target_lead:.2f}',
                 f'prepared_lead={self._producerPreparedLead():.2f}',
+                f'queue_underruns={self._queue_underruns}',
+                f'output_underflows={self._output_underflows}',
                 f'growing_file={self._growing_file_path is not None}',
                 f'growing_file_complete={self._growing_file_complete}',
                 f'growing_stream_mode={self._growing_stream_mode}',
@@ -1398,9 +1406,12 @@ class AudioPlayer(QObject):
 
     def _audio_callback(self, outdata, frames, _time_info, _status):
         outdata[:] = 0
+        if _status.output_underflow:
+            self._output_underflows += 1
         try:
             item = self._audio_queue.get_nowait()
         except Empty:
+            self._queue_underruns += 1
             return
 
         if item is None:
@@ -1525,7 +1536,6 @@ class AudioPlayer(QObject):
         self._producer_seq += 1
         producer_seq = self._producer_seq
         self._producer_last_resource_sample = time.perf_counter()
-        _getCpuLoad()
         self._producer_thread = threading.Thread(
             target=lambda: self._producerLoop(producer_seq), daemon=True
         )
@@ -1544,6 +1554,9 @@ class AudioPlayer(QObject):
         return max(
             0.0, (self._prepared_end_index - self.current_index) / self.sample_rate
         )
+
+    def _producerThreadAlive(self) -> bool:
+        return self._producer_thread is not None and self._producer_thread.is_alive()
 
     def _producerDesiredLead(self) -> float:
         if len(self.samples) == 0:
@@ -1573,10 +1586,10 @@ class AudioPlayer(QObject):
             return _PRODUCER_LATE_IDLE_LEAD
         return _PRODUCER_LATE_LEAD
 
-    def _sampleProducerResources(self) -> None:
+    def _sampleProducerResources(self, force: bool = False) -> None:
         now = time.perf_counter()
         elapsed = now - self._producer_last_resource_sample
-        if elapsed < 0.75:
+        if not force and elapsed < 0.75:
             return
 
         cpu_load = _getCpuLoad()
@@ -1597,6 +1610,7 @@ class AudioPlayer(QObject):
 
     def _producerLoop(self, producer_seq: int) -> None:
         finished = False
+        _getCpuLoad()
         while self._producer_running and producer_seq == self._producer_seq:
             self._sampleProducerResources()
 
@@ -1606,7 +1620,10 @@ class AudioPlayer(QObject):
             ) * 0.2
 
             lead = self._producerPreparedLead()
-            if lead >= max(0.8, self._producer_target_lead * 0.45):
+            if lead >= max(
+                _PRODUCER_MIN_REFILL_LEAD,
+                self._producer_target_lead * _PRODUCER_REFILL_RATIO,
+            ):
                 time.sleep(0.02)
                 continue
 
@@ -1618,6 +1635,7 @@ class AudioPlayer(QObject):
                 batch_end_index = self._prepared_end_index
 
             waiting_for_growing_file = False
+            produced_blocks = 0
             while self._producer_running and producer_seq == self._producer_seq:
                 if self.sample_rate <= 0:
                     break
@@ -1680,11 +1698,24 @@ class AudioPlayer(QObject):
                             break
                         self._producer_index = next_index
                         batch_end_index = max(batch_end_index, self._producer_index)
+                        self._prepared_end_index = max(
+                            self._prepared_end_index,
+                            self._producer_index,
+                        )
+                        produced_blocks += 1
 
                 if finished:
                     break
 
-                time.sleep(0.001)
+                if produced_blocks % _PRODUCER_YIELD_BLOCKS == 0:
+                    self._sampleProducerResources()
+                    target_lead = self._producerDesiredLead()
+                    self._producer_target_lead += (
+                        target_lead - self._producer_target_lead
+                    ) * 0.2
+                    time.sleep(0)
+
+            self._sampleProducerResources(force=self._producer_memory_load == 0.0)
 
             with self._lock:
                 if (

@@ -109,7 +109,7 @@ class MainWindow(FluentWindowBase):
             self.ctx.lyric_editor_page,
         ]:
             if ctx.launch_window:
-                ctx.launch_window.push(f'Adding {w} to stacked widget...')
+                ctx.launch_window.subtitle(f'Adding {w} to stacked widget...')
             setTransparentBackground(w)
             self.contents_widget.addWidget(w)
 
@@ -145,7 +145,7 @@ class MainWindow(FluentWindowBase):
         ctx.player.positionChanged.connect(ctx.playing_manager.onPlayerPositionChanged)
 
         if ctx.launch_window:
-            ctx.launch_window.top('  Wiring signal connections...')
+            ctx.launch_window.subtitle('  Wiring signal connections...')
 
         self.controller.setParent(self)
 
@@ -461,7 +461,7 @@ class MainWindow(FluentWindowBase):
 
     def init(self) -> None:
         self._launchwindow.clear()
-        self._launchwindow.push('Initializing main window...')
+        self._launchwindow.subtitle('Initializing main window...')
         last_playlist: list[SongStorable] = []
         last_playing_index = -1
 
@@ -474,17 +474,17 @@ class MainWindow(FluentWindowBase):
 
         def _finish_init():
             if last_playlist:
-                self._launchwindow.top('restore playlist...')
+                self._launchwindow.subtitle('restore playlist...')
                 self._dp.playlist = list(last_playlist)
                 if 0 <= last_playing_index < len(last_playlist):
-                    self._launchwindow.top('continue last song...')
+                    self._launchwindow.subtitle('continue last song...')
 
                     def _continue():
                         event_bus.emit(PLAY_CONTINUE_LAST_SONG, cfg.last_playing_index)
 
                     self.ctx.addScheduledTask(_continue)
 
-            self._launchwindow.top('refreshing login information')
+            self._launchwindow.subtitle('refreshing login information')
             self.refreshLoginInformations()
 
             def _show():
@@ -496,13 +496,14 @@ class MainWindow(FluentWindowBase):
                 if self.llm_viewer_panel.expanded:
                     self.toggleLLMViewerExpand()
 
-                event_bus._lw = None
-                self._launchwindow.deleteLater()
-
                 self.refreshFolders()
                 if favorites_manager.folders:
                     self._fp.setDisplayFolder(favorites_manager.folders[0])
                 self.contents_widget.setCurrentWidget(self.ctx.home_page)
+
+                event_bus._lw = None
+                self._launchwindow.close()
+                self._launchwindow.deleteLater()
 
             self.ctx.addScheduledTask(_show)
 
