@@ -20,5 +20,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+call uv sync
+
 echo Done! pyproject.toml and installer.iss updated to v%VER%.
 pause
