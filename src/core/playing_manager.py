@@ -26,12 +26,7 @@ from core.audio_player import (
 )
 from core.backend import getBackend
 from core.config import cfg
-from core.crossfade import (
-    CrossFadeInfo,
-    getCrossfade,
-    renderTransitionSamples,
-    transitionSourceSeconds,
-)
+from core.crossfade import CrossFadeInfo, getCrossfade, renderTransitionSamples
 from core.downloader import asyncTask, asyncDownload
 from core.favorites import saveFavorites
 from core.free_threaded_worker import FreeThreadedJsonSender
@@ -920,9 +915,6 @@ class PlayingManager:
         player.setVolume(0.0)
         play_speed = cfg.play_speed
         play_pitch = cfg.play_pitch
-        transition_info = self.crossfade_info
-        if transition_info is None:
-            return
 
         def _prepare() -> None:
             player.loadPrepared(prepared)
@@ -930,12 +922,7 @@ class PlayingManager:
             player.setPlaySpeed(play_speed)
             player.setPlayPitch(play_pitch)
             player.prepareStream()
-            player.playFromLivePosition(
-                lambda: transitionSourceSeconds(
-                    crossfade_player._getExactPosition(),
-                    transition_info,
-                )
-            )
+            player.playFromLivePosition(crossfade_player._getExactPosition)
             self._crossfade_handoff_ready = player.isPlaying()
             if self._crossfade_handoff_ready:
                 self._logger.info('crossfade handoff player prepared')

@@ -142,44 +142,17 @@ def renderTransitionSamples(
     frames = max(0, int(round(info.fade_seconds * info.sample_rate)))
     if frames <= 0:
         return np.zeros((0, info.channels), dtype=np.float32)
-    correction = 1.0
-    if info.target_speed > 0:
-        correction = max(0.85, min(1.15, 1.0 / info.target_speed))
-    progress = np.linspace(0.0, 1.0, frames, dtype=np.float32)
-    source_speed = correction + (1.0 - correction) * progress
-    source_positions = np.cumsum(
-        np.concatenate((np.zeros(1, dtype=np.float32), source_speed[:-1]))
-    )
-    source_frames = max(frames, int(np.ceil(source_positions[-1])) + 2)
     next_samples = _segment_to_samples(
-        next_audio[: int(np.ceil(source_frames * 1000.0 / info.sample_rate)) + 1],  # type: ignore
+        next_audio[: int(np.ceil(info.fade_seconds * 1000.0)) + 1],
         info.sample_rate,
         info.channels,
-    )
-    if len(next_samples) < source_frames:
-        padded = np.zeros((source_frames, info.channels), dtype=np.float32)
+    )[:frames]
+    if len(next_samples) < frames:
+        padded = np.zeros((frames, info.channels), dtype=np.float32)
         padded[: len(next_samples)] = next_samples
         next_samples = padded
-    rendered = np.empty((frames, info.channels), dtype=np.float32)
-    sample_axis = np.arange(len(next_samples), dtype=np.float32)
-    for channel in range(info.channels):
-        rendered[:, channel] = np.interp(
-            source_positions,
-            sample_axis,
-            next_samples[:, channel],
-        )
     _, fade_in = _select_fade_curve(curve, frames)
-    return _limit_samples(rendered * fade_in)
-
-
-def transitionSourceSeconds(position_seconds: float, info: CrossFadeInfo) -> float:
-    """Map transition-buffer time to the next-song source position."""
-    if info.fade_seconds <= 0 or info.target_speed <= 0:
-        return max(0.0, position_seconds)
-    correction = max(0.85, min(1.15, 1.0 / info.target_speed))
-    progress = max(0.0, min(1.0, position_seconds / info.fade_seconds))
-    consumed = correction * progress + (1.0 - correction) * progress**2 * 0.5
-    return info.fade_seconds * consumed
+    return _limit_samples(next_samples * fade_in)
 
 
 _CAMELOT_MAP: dict[str, str] = {
