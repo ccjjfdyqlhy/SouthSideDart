@@ -26,7 +26,7 @@ from core.audio_player import (
 )
 from core.backend import getBackend
 from core.config import cfg
-from core.crossfade import CrossFadeInfo, getCrossfade, key_pitch_shift
+from core.crossfade import CrossFadeInfo, getCrossfade
 from core.downloader import asyncTask, asyncDownload
 from core.favorites import saveFavorites
 from core.free_threaded_worker import FreeThreadedJsonSender
@@ -912,34 +912,17 @@ class PlayingManager:
         player.setVolume(0.0)
         play_speed = cfg.play_speed
         play_pitch = cfg.play_pitch
-        info = self.crossfade_info
-        key_correction = 0.0
-        if (
-            info is not None
-            and cfg.crossfade_key_match
-            and info.key_compatibility < 0.5
-        ):
-            key_correction = max(
-                -3.0,
-                min(3.0, key_pitch_shift(info.current_key, info.next_key)),
-            )
 
         def _prepare() -> None:
             player.loadPrepared(prepared)
             player.setGain(self.next_song_gain or 1.0)
             player.setPlaySpeed(play_speed)
-            player.setPlayPitch(play_pitch + key_correction)
+            player.setPlayPitch(play_pitch)
             player.prepareStream()
             player.playFromLivePosition(crossfade_player._getExactPosition)
             self._crossfade_handoff_ready = player.isPlaying()
             if self._crossfade_handoff_ready:
                 self._logger.info('crossfade handoff player prepared')
-                if key_correction:
-                    self._schedule(
-                        player.animatePlayPitch,
-                        play_pitch,
-                        max(180, int((info.fade_seconds if info else 1.0) * 250)),
-                    )
 
         threading.Thread(
             target=_prepare,
@@ -1289,25 +1272,18 @@ class PlayingManager:
         duration_ms = max(1, int(info.fade_seconds * 1000))
         play_speed = cfg.play_speed
         play_pitch = cfg.play_pitch
-        tempo_correction = 1.0 / info.target_speed if cfg.crossfade_tempo_match else 1.0
-        tempo_correction = max(0.85, min(1.15, tempo_correction))
-        key_correction = 0.0
-        if cfg.crossfade_key_match and info.key_compatibility < 0.5:
-            key_correction = max(
-                -3.0,
-                min(3.0, key_pitch_shift(info.current_key, info.next_key)),
-            )
 
         player.stopPlaySpeedAnimation()
         player.setPlaySpeed(play_speed)
         player.setPlayPitch(play_pitch)
         crossfade_player.setGain(gain)
         crossfade_player.setVolume(0.0)
-        crossfade_player.setPlaySpeed(play_speed * tempo_correction)
+        # Keep the live player stable. Apply tempo and key matching in a
+        # rendered transition buffer instead of mutating an active WSOLA queue.
+        crossfade_player.stopPlayPitchAnimation()
+        crossfade_player.setPlaySpeed(play_speed)
         crossfade_player.setPlayPitch(play_pitch)
         crossfade_player.play()
-        if key_correction:
-            crossfade_player.animatePlayPitch(play_pitch + key_correction, duration_ms)
 
         self.current_song = selection.song
         self.current_song_audio = audio
