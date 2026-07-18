@@ -1,5 +1,5 @@
 from __future__ import annotations
-# recoded from https://github.com/oguzhan-yilmaz/pyCrossfade
+# Inspiration from https://github.com/oguzhan-yilmaz/pyCrossfade
 
 import base64
 from dataclasses import dataclass
