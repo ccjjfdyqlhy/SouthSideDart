@@ -677,6 +677,16 @@ TRANSLATIONS: dict[str, list[str]] = {
         '启用频谱图形',
     ],
     'setting_page.enable_crossfade': ['Enable Crossfade', '启用交叉淡化'],
+    'setting_page.crossfade': ['Crossfade', '交叉淡化'],
+    'setting_page.crossfade_easy': ['Seamless Transition', '无缝过渡'],
+    'setting_page.crossfade_settings_description': [
+        'Automatic tempo, key and gain matching between adjacent songs.',
+        '自动匹配相邻歌曲的速度、调性和增益。',
+    ],
+    'setting_page.crossfade_settings_description_easy': [
+        'Blend the end of one song smoothly into the next.',
+        '让上一首歌平滑地衔接到下一首。',
+    ],
     'setting_page.enable_crossfade_easy': [
         'Enable Seamless Transition',
         '启用无缝过渡',
@@ -784,10 +794,67 @@ TRANSLATIONS: dict[str, list[str]] = {
         'larger value makes the transition start earlier and blend more strongly',
         '数值越大，过渡越早开始且混合感越强',
     ],
+    'setting_page.crossfade_curve': ['Crossfade Curve', '淡化曲线'],
+    'setting_page.crossfade_curve_description': [
+        'choose the amplitude curve used during the transition',
+        '选择过渡期间使用的振幅曲线',
+    ],
+    'setting_page.crossfade_max_duration': [
+        'Maximum Crossfade Duration',
+        '最大淡化时长',
+    ],
+    'setting_page.crossfade_max_duration_description': [
+        'cap automatically selected crossfade duration in seconds',
+        '限制自动选择的交叉淡化最大秒数',
+    ],
+    'setting_page.crossfade_bpm_window': [
+        'BPM Analysis Window',
+        'BPM 分析窗口',
+    ],
+    'setting_page.crossfade_bpm_window_description': [
+        'seconds of audio used for BPM detection',
+        '用于 BPM 检测的音频秒数',
+    ],
+    'setting_page.crossfade_tempo_match': [
+        'Match Crossfade Tempo',
+        '匹配交叉淡化速度',
+    ],
+    'setting_page.crossfade_tempo_match_description': [
+        'use detected BPM to ease tempo differences between songs',
+        '使用检测到的 BPM 平滑两首歌曲的速度差异',
+    ],
+    'setting_page.crossfade_key_match': [
+        'Analyze Musical Key',
+        '分析音乐调性',
+    ],
+    'setting_page.crossfade_key_match_description': [
+        'detect Camelot keys and report harmonic compatibility',
+        '检测 Camelot 调性并报告和声兼容度',
+    ],
+    'setting_page.crossfade_agc': [
+        'Crossfade Gain Compensation',
+        '交叉淡化增益补偿',
+    ],
+    'setting_page.crossfade_agc_description': [
+        'raise a pronounced RMS dip in the mixed transition',
+        '补偿混合过渡中明显的 RMS 音量凹陷',
+    ],
     'setting_page.playback_pitch': ['Playback Pitch', '播放音调'],
     'setting_page.playback_speed': ['Playback Speed', '播放速度'],
     'setting_page.playback_speed_easy': ['Playback Speed', '播放速度'],
     'setting_page.playing': ['Playing', '播放'],
+    'setting_page.playback': ['Playback', '播放'],
+    'setting_page.playback_easy': ['Playback', '播放'],
+    'setting_page.playback_effects': ['Playback Effects', '播放效果'],
+    'setting_page.playback_effects_easy': ['Playback Effects', '播放效果'],
+    'setting_page.playback_effects_description': [
+        'Speed, pitch and other active playback effects.',
+        '速度、音调和其他播放效果。',
+    ],
+    'setting_page.playback_effects_description_easy': [
+        'Playback speed and pitch controls.',
+        '播放速度和音调控制。',
+    ],
     'setting_page.playing_easy': ['Playback', '听歌'],
     'setting_page.llm': ['LLM', 'LLM'],
     'setting_page.llm_provider_model_and_authentication': [

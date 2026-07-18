@@ -155,7 +155,6 @@ class DevicesInfo:
 
 def getAudioDevices() -> list[DevicesInfo]:
     devices = sd.query_devices()
-    print(devices)
     result: list[DevicesInfo] = []
     for i, dev in enumerate(devices):
         if dev['max_output_channels'] > 0:
@@ -363,7 +362,7 @@ class AudioPlayer(QObject):
     positionChanged = Signal(float)
     fftDataReady = Signal(np.ndarray, np.ndarray)  # (freqs, magnitudes)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, devices: list[DevicesInfo] | None = None):
         super().__init__(parent)
         self._logger = logging.getLogger(__name__)
 
@@ -388,6 +387,7 @@ class AudioPlayer(QObject):
         self._volume_anim: Optional[QPropertyAnimation] = None
         self._gain_anim: Optional[QPropertyAnimation] = None
         self._speed_anim: Optional[QPropertyAnimation] = None
+        self._pitch_anim: Optional[QPropertyAnimation] = None
         self._speed_animating_flag: bool = False
 
         self.fft_enabled = True
@@ -430,7 +430,7 @@ class AudioPlayer(QObject):
         self._pending_ending_no_sound = False
 
         self._lock = threading.RLock()
-        devices = getAudioDevices()
+        devices = devices if devices is not None else getAudioDevices()
         if len(devices) == 0:
             self._logger.error('no devices found')
             dialog = MessageBox(
@@ -1115,6 +1115,24 @@ class AudioPlayer(QObject):
             if was_playing:
                 self._startProducer()
 
+    def animatePlayPitch(self, target: float, duration_ms: int) -> None:
+        if (
+            self._pitch_anim is not None
+            and self._pitch_anim.state() == QPropertyAnimation.State.Running
+        ):
+            self._pitch_anim.stop()
+        self._pitch_anim = QPropertyAnimation(self, b'animPlayPitch')
+        self._pitch_anim.setStartValue(self.play_pitch)
+        self._pitch_anim.setEndValue(max(-12.0, min(12.0, target)))
+        self._pitch_anim.setDuration(max(1, duration_ms))
+        self._pitch_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._pitch_anim.start()
+
+    def stopPlayPitchAnimation(self) -> None:
+        if self._pitch_anim is not None:
+            self._pitch_anim.stop()
+            self._pitch_anim = None
+
     def isPlaying(self) -> bool:
         if self.is_playing:
             return True
@@ -1179,6 +1197,17 @@ class AudioPlayer(QObject):
         self._gain_anim.start()
 
     def animateVolume(self, target: float, duration_ms: int = 600) -> None:
+        self.animateVolumeCurve(
+            target, duration_ms, 'equal_power', target > self.volume_gain
+        )
+
+    def animateVolumeCurve(
+        self,
+        target: float,
+        duration_ms: int = 600,
+        curve: str = 'equal_power',
+        fade_in: bool = True,
+    ) -> None:
         if (
             self._volume_anim is not None
             and self._volume_anim.state() == QPropertyAnimation.State.Running
@@ -1188,7 +1217,26 @@ class AudioPlayer(QObject):
         self._volume_anim.setStartValue(self.volume_gain)
         self._volume_anim.setEndValue(max(0.0, min(1.0, target)))
         self._volume_anim.setDuration(duration_ms)
-        self._volume_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        if curve == 'linear':
+            self._volume_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        elif curve == 'sigmoid':
+            self._volume_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        else:
+            start = self.volume_gain
+            end = max(0.0, min(1.0, target))
+            values = (
+                ((0.0, 0.0), (0.25, 0.3827), (0.5, 0.7071), (0.75, 0.9239), (1.0, 1.0))
+                if fade_in
+                else (
+                    (0.0, 1.0),
+                    (0.25, 0.9239),
+                    (0.5, 0.7071),
+                    (0.75, 0.3827),
+                    (1.0, 0.0),
+                )
+            )
+            for position, value in values[1:-1]:
+                self._volume_anim.setKeyValueAt(position, start + (end - start) * value)
         self._volume_anim.start()
 
     def stopVolumeAnimation(self) -> None:
@@ -1248,6 +1296,14 @@ class AudioPlayer(QObject):
 
     def _onSpeedAnimFinished(self) -> None:
         self._speed_animating_flag = False
+
+    @Property(float)
+    def _animPlayPitch(self) -> float:
+        return self.play_pitch
+
+    @_animPlayPitch.setter
+    def animPlayPitch(self, value: float) -> None:
+        self.play_pitch = max(-12.0, min(12.0, value))
 
     def _fft_worker(self):
         sample_history = np.zeros(0, dtype=np.float32)

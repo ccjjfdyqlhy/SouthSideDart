@@ -46,6 +46,12 @@ class DebugOverlay(QWidget):
 
         self.dragging = False
         self.drag_pos: QPoint = QPoint(0, 0)
+        self.resizing = False
+        self.resize_edges: tuple[bool, bool] = (False, False)
+        self.resize_origin = QPoint(0, 0)
+        self.geometry_origin = self.geometry()
+        self.resize_margin = 10
+        self.setMinimumSize(420, 360)
 
         self.mem_datas: dict[str, deque[int]] = {}
         self.collect_timer = QTimer(self)
@@ -211,13 +217,62 @@ class DebugOverlay(QWidget):
                 self.raise_()
             self.update()
 
+    def adjustToParent(self) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        bounds = parent.rect()
+        width = min(self.width(), bounds.width())
+        height = min(self.height(), bounds.height())
+        x = max(0, min(self.x(), bounds.width() - width))
+        y = max(0, min(self.y(), bounds.height() - height))
+        self.setGeometry(
+            x, y, max(self.minimumWidth(), width), max(self.minimumHeight(), height)
+        )
+
+    def _resizeEdges(self, position: QPoint) -> tuple[bool, bool]:
+        return (
+            position.x() >= self.width() - self.resize_margin,
+            position.y() >= self.height() - self.resize_margin,
+        )
+
+    def _updateResizeCursor(self, position: QPoint) -> None:
+        right, bottom = self._resizeEdges(position)
+        if right and bottom:
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        elif right:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif bottom:
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        else:
+            self.unsetCursor()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         event.accept()
+        edges = self._resizeEdges(event.pos())
+        if any(edges):
+            self.resizing = True
+            self.resize_edges = edges
+            self.resize_origin = event.globalPosition().toPoint()
+            self.geometry_origin = self.geometry()
+            return
         self.dragging = True
         self.drag_pos = QPoint(event.x(), event.y())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self.resizing:
+            delta = event.globalPosition().toPoint() - self.resize_origin
+            right, bottom = self.resize_edges
+            width = self.geometry_origin.width() + (delta.x() if right else 0)
+            height = self.geometry_origin.height() + (delta.y() if bottom else 0)
+            self.resize(
+                max(self.minimumWidth(), width), max(self.minimumHeight(), height)
+            )
+            self.adjustToParent()
+            event.accept()
+            return
         if not self.dragging:
+            self._updateResizeCursor(event.pos())
             return super().mouseMoveEvent(event)
         event.accept()
         self.move(self.pos() + event.pos() - self.drag_pos)
@@ -225,6 +280,8 @@ class DebugOverlay(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         event.accept()
         self.dragging = False
+        self.resizing = False
+        self._updateResizeCursor(event.pos())
 
     def paintEvent(self, _) -> None:
         if not self.ctx.debugging:
@@ -320,23 +377,37 @@ class DebugOverlay(QWidget):
 
             y += 10
             export_info = lyricVideoExportDebugInfo()
+            blocks: list[tuple[str, list[str]]] = []
             if export_info:
-                painter.setFont(self.title_ft)
-                painter.drawText(10, y, 'Lyric Video Export')
-                y += self.title_height + 10
-                painter.setFont(self.content_ft)
-                for line in export_info:
-                    painter.drawText(20, y, line)
-                    y += self.content_height + 1
-
+                blocks.append(('Lyric Video Export', export_info))
             for info in self.ctx.debugging_obj.infos:
                 name, lines = next(iter(info.items()))
-                painter.setFont(self.title_ft)
-                painter.drawText(10, y, name)
-                y += self.title_height + 10
-                painter.setFont(self.content_ft)
-                for line in lines:
-                    painter.drawText(20, y, line)
-                    y += self.content_height + 1
+                blocks.append((name, lines))
+
+            if blocks:
+                available_width = max(1, self.width() - 20)
+                column_count = max(1, available_width // 300)
+                column_width = available_width / column_count
+                column_heights = [y for _ in range(column_count)]
+
+                for name, lines in blocks:
+                    column = min(range(column_count), key=column_heights.__getitem__)
+                    x = int(10 + column * column_width)
+                    block_y = column_heights[column]
+                    text_width = max(1, int(column_width) - 20)
+                    painter.setFont(self.title_ft)
+                    painter.drawText(x, block_y, name)
+                    block_y += self.title_height + 10
+                    painter.setFont(self.content_ft)
+                    for line in lines:
+                        painter.drawText(
+                            x + 10,
+                            block_y,
+                            self.content_metri.elidedText(
+                                line, Qt.TextElideMode.ElideRight, text_width
+                            ),
+                        )
+                        block_y += self.content_height + 1
+                    column_heights[column] = block_y + 12
         finally:
             painter.end()

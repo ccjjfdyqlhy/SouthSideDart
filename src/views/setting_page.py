@@ -363,7 +363,7 @@ class SettingPage(QWidget):
         )
 
         self.addSection(
-            'setting_page.playing',
+            'setting_page.playback',
             'setting_page.playback_order_stereo_output_speed_and_skip_behavior',
         )
 
@@ -415,6 +415,10 @@ class SettingPage(QWidget):
             'setting_page.skip_the_no_sound_section_when_song_ends',
             'skip_nosound',
         )
+        self.addSection(
+            'setting_page.crossfade',
+            'setting_page.crossfade_settings_description',
+        )
         self.addCheckSetting(
             'setting_page.enable_crossfade',
             'setting_page.enable_crossfade_effect',
@@ -428,6 +432,58 @@ class SettingPage(QWidget):
             0.05,
             'crossfade_strength',
             advanced=True,
+        )
+        crossfade_curve_box = ComboBox()
+        crossfade_curve_box.addItems(['equal_power', 'sigmoid', 'linear'])
+        crossfade_curve_box.setCurrentText(cfg.crossfade_curve)
+        crossfade_curve_box.currentTextChanged.connect(
+            lambda value: setattr(cfg, 'crossfade_curve', value)
+        )
+        self.addSetting(
+            'setting_page.crossfade_curve',
+            'setting_page.crossfade_curve_description',
+            crossfade_curve_box,
+            advanced=True,
+        )
+        self.addNumberSetting(
+            'setting_page.crossfade_max_duration',
+            'setting_page.crossfade_max_duration_description',
+            1,
+            24,
+            0.5,
+            'crossfade_max_duration',
+            advanced=True,
+        )
+        self.addNumberSetting(
+            'setting_page.crossfade_bpm_window',
+            'setting_page.crossfade_bpm_window_description',
+            4,
+            60,
+            1,
+            'crossfade_bpm_window',
+            advanced=True,
+        )
+        self.addCheckSetting(
+            'setting_page.crossfade_tempo_match',
+            'setting_page.crossfade_tempo_match_description',
+            'crossfade_tempo_match',
+            advanced=True,
+        )
+        self.addCheckSetting(
+            'setting_page.crossfade_key_match',
+            'setting_page.crossfade_key_match_description',
+            'crossfade_key_match',
+            advanced=True,
+        )
+        self.addCheckSetting(
+            'setting_page.crossfade_agc',
+            'setting_page.crossfade_agc_description',
+            'crossfade_agc',
+            advanced=True,
+        )
+        self.addSection(
+            'setting_page.playback_effects',
+            'setting_page.playback_effects_description',
         )
         self.addNumberSetting(
             'setting_page.playback_speed',

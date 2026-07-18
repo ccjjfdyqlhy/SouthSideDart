@@ -91,6 +91,12 @@ class Config:
 
     enable_crossfade: bool = True
     crossfade_strength: float = 1
+    crossfade_curve: str = 'equal_power'
+    crossfade_max_duration: float = 24.0
+    crossfade_tempo_match: bool = True
+    crossfade_key_match: bool = True
+    crossfade_bpm_window: int = 15
+    crossfade_agc: bool = True
 
     background_ratio: float = 0.4
     volume: float = 1

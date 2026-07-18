@@ -269,7 +269,7 @@ class MainWindow(FluentWindowBase):
         self.debug_overlay = DebugOverlay(ctx, self)
         geo = self.rect()
         geo.setWidth(int(self.width() * 0.4))
-        geo.setHeight(int(self.height() - 50))
+        geo.setHeight(int(self.height() * 0.8))
         self.debug_overlay.setGeometry(geo)
         self.debug_overlay.raise_()
 
@@ -708,9 +708,7 @@ class MainWindow(FluentWindowBase):
             self.search_input.raise_()
 
         if hasattr(self, 'debug_overlay'):
-            geo = self.rect()
-            geo.setWidth(int(self.width() * 0.25))
-            self.debug_overlay.setGeometry(geo)
+            self.debug_overlay.adjustToParent()
             self.debug_overlay.raise_()
 
     def onWebsocketConnected(self):

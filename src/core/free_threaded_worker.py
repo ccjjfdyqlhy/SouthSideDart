@@ -17,7 +17,7 @@ from typing import Any
 
 _B64_BYTES_KEY = '__southside_b64_bytes__'
 _FLOAT_ARRAY_KEY = '__southside_float_array__'
-_MAIN_THREAD_OPS = {'loudness_gain'}
+_MAIN_THREAD_OPS = {'crossfade', 'loudness_gain'}
 _ORIGINAL_POPEN = subprocess.Popen
 
 
@@ -259,6 +259,55 @@ def _decodeAudio(payload: dict[str, Any]) -> bytes:
     return bytes(wav_bytes)
 
 
+def _crossfade(payload: dict[str, Any]) -> dict[str, Any]:
+    import numpy as np
+    from pydub import AudioSegment
+
+    from core.crossfade import getCrossfade
+
+    def _segment(key: str) -> AudioSegment:
+        raw = payload.get(key, b'')
+        if not isinstance(raw, bytes):
+            raise TypeError(f'{key} must be bytes')
+        return AudioSegment(
+            data=raw,
+            sample_width=int(payload.get(f'{key}_sample_width', 2)),
+            frame_rate=int(payload.get(f'{key}_sample_rate', 44100)),
+            channels=int(payload.get(f'{key}_channels', 2)),
+        )
+
+    info = getCrossfade(
+        _segment('current'),
+        _segment('next'),
+        float(payload.get('crossfade_seconds', 0.0)),
+        float(payload.get('strength', 1.0)),
+        current_song_id=payload.get('current_song_id'),
+        next_song_id=payload.get('next_song_id'),
+        max_duration=float(payload.get('max_duration', 24.0)),
+        curve=str(payload.get('curve', 'equal_power')),
+        bpm_window=float(payload.get('bpm_window', 15.0)),
+        tempo_match=bool(payload.get('tempo_match', True)),
+        key_match=bool(payload.get('key_match', True)),
+        agc=bool(payload.get('agc', True)),
+        current_duration_seconds=payload.get('current_duration_seconds'),
+    )
+    samples = np.ascontiguousarray(info.samples, dtype=np.float32)
+    return {
+        'start_seconds': info.start_seconds,
+        'fade_seconds': info.fade_seconds,
+        'end_seconds': info.end_seconds,
+        'sample_rate': info.sample_rate,
+        'channels': info.channels,
+        'samples': samples.tobytes(),
+        'samples_shape': tuple(int(value) for value in samples.shape),
+        'target_speed': info.target_speed,
+        'ending_type': info.ending_type,
+        'current_key': info.current_key,
+        'next_key': info.next_key,
+        'key_compatibility': info.key_compatibility,
+    }
+
+
 def _handleWorkerRequest(request: dict[str, Any]) -> Any:
     op = request.get('op')
     payload = request.get('payload', {})
@@ -279,6 +328,8 @@ def _handleWorkerRequest(request: dict[str, Any]) -> Any:
         return _loudnessGain(payload)
     if op == 'decode_audio':
         return _decodeAudio(payload)
+    if op == 'crossfade':
+        return _crossfade(payload)
 
     raise ValueError(f'unsupported worker op: {op}')
 
