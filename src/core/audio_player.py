@@ -1239,6 +1239,27 @@ class AudioPlayer(QObject):
                 self._volume_anim.setKeyValueAt(position, start + (end - start) * value)
         self._volume_anim.start()
 
+    def animateVolumeProfile(
+        self, profile: tuple[float, ...], duration_ms: int = 600
+    ) -> None:
+        """Animate through an analysis-derived gain profile."""
+        if len(profile) < 2:
+            return
+        if (
+            self._volume_anim is not None
+            and self._volume_anim.state() == QPropertyAnimation.State.Running
+        ):
+            self._volume_anim.stop()
+        self._volume_anim = QPropertyAnimation(self, b'volumeGain')
+        self._volume_anim.setStartValue(max(0.0, min(1.0, profile[0])))
+        self._volume_anim.setEndValue(max(0.0, min(1.0, profile[-1])))
+        self._volume_anim.setDuration(duration_ms)
+        for index, value in enumerate(profile[1:-1], start=1):
+            self._volume_anim.setKeyValueAt(
+                index / (len(profile) - 1), max(0.0, min(1.0, value))
+            )
+        self._volume_anim.start()
+
     def stopVolumeAnimation(self) -> None:
         if self._volume_anim is not None:
             self._volume_anim.stop()

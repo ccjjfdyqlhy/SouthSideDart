@@ -43,6 +43,8 @@ class CrossFadeInfo:
     current_key: str = ''
     next_key: str = ''
     key_compatibility: float = 0.0
+    fade_out_profile: tuple[float, ...] = ()
+    fade_in_profile: tuple[float, ...] = ()
 
     def debugInfo(self) -> list[str]:
         samples_shape = tuple(int(value) for value in self.samples.shape)
@@ -78,6 +80,8 @@ class CrossFadeInfo:
             'current_key': self.current_key,
             'next_key': self.next_key,
             'key_compatibility': self.key_compatibility,
+            'fade_out_profile': list(self.fade_out_profile),
+            'fade_in_profile': list(self.fade_in_profile),
         }
 
     @classmethod
@@ -97,6 +101,8 @@ class CrossFadeInfo:
             current_key=d.get('current_key', ''),
             next_key=d.get('next_key', ''),
             key_compatibility=d.get('key_compatibility', 0.0),
+            fade_out_profile=tuple(float(v) for v in d.get('fade_out_profile', ())),
+            fade_in_profile=tuple(float(v) for v in d.get('fade_in_profile', ())),
         )
 
     def cache_path(self, token: str) -> str:
@@ -365,6 +371,7 @@ def _cache_token(
         (
             current_id,
             next_id,
+            'smart-crossfade-v2',
             str(sample_rate),
             str(channels),
             f'{crossfade_seconds:.6f}',
@@ -432,7 +439,11 @@ def getCrossfade(
         int(round(max_duration)),
         int(round(bpm_window)),
     )
-    window_ms = window_seconds * 1000
+    window_ms = min(
+        window_seconds * 1000,
+        len(current),
+        len(next),
+    )
     current_duration = (
         current_duration_seconds
         if current_duration_seconds is not None
@@ -521,6 +532,12 @@ def getCrossfade(
     )
     next_head = next_samples[:fade_frames]
     fade_out, fade_in = _select_fade_curve(curve, fade_frames)
+    fade_out_profile, fade_in_profile = _make_fade_profiles(
+        current_tail,
+        next_head,
+        sample_rate,
+        curve,
+    )
     mixed = current_tail * fade_out + next_head * fade_in
     if agc:
         mixed = _apply_agc(mixed, sample_rate)
@@ -539,6 +556,8 @@ def getCrossfade(
         current_key=current_key,
         next_key=next_key,
         key_compatibility=key_compat,
+        fade_out_profile=fade_out_profile,
+        fade_in_profile=fade_in_profile,
     )
 
     if cache_token is not None and current_duration_seconds is None:
@@ -764,6 +783,49 @@ def _select_fade_curve(curve: str, frames: int) -> tuple[np.ndarray, np.ndarray]
         progress = np.linspace(0.0, 1.0, frames, dtype=np.float32).reshape(-1, 1)
         return 1.0 - progress, progress
     return _equal_power_fades(frames)
+
+
+def _make_fade_profiles(
+    current_tail: np.ndarray,
+    next_head: np.ndarray,
+    sample_rate: int,
+    curve: str,
+    points: int = 9,
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Create slowly varying gains that compensate for real song energy."""
+    if curve != 'smart' or len(current_tail) < 2 or len(next_head) < 2:
+        fade_out, fade_in = _select_fade_curve(curve, min(len(current_tail), len(next_head)))
+        return tuple(float(v) for v in fade_out[:: max(1, len(fade_out) // 9), 0]), tuple(
+            float(v) for v in fade_in[:: max(1, len(fade_in) // 9), 0]
+        )
+
+    frames = min(len(current_tail), len(next_head))
+    fade_out, fade_in = _equal_power_fades(frames)
+    block = max(256, int(sample_rate * 0.08))
+    count = max(2, min(points, int(np.ceil(frames / block)) + 1))
+    positions = np.linspace(0, frames - 1, count).astype(np.intp)
+    rms_current = np.sqrt(np.mean(current_tail[:frames] ** 2, axis=1))
+    rms_next = np.sqrt(np.mean(next_head[:frames] ** 2, axis=1))
+    source_x = np.arange(frames, dtype=np.float32)
+    control_x = positions.astype(np.float32)
+    current = np.interp(control_x, source_x, rms_current)
+    following = np.interp(control_x, source_x, rms_next)
+    floor = max(float(np.percentile(np.concatenate((current, following)), 30)), 1e-4)
+    current /= floor
+    following /= floor
+    out = fade_out[positions, 0].astype(np.float64)
+    incoming = fade_in[positions, 0].astype(np.float64)
+    combined = np.sqrt((out * current) ** 2 + (incoming * following) ** 2)
+    target = np.maximum(combined[0], combined[-1])
+    compensation = np.sqrt(target / np.maximum(combined, 1e-4))
+    compensation = np.clip(compensation, 0.72, 1.18)
+    out *= compensation
+    incoming *= compensation
+    out = np.clip(out, 0.0, 1.0)
+    incoming = np.clip(incoming, 0.0, 1.0)
+    out[0], incoming[0] = 1.0, 0.0
+    out[-1], incoming[-1] = 0.0, 1.0
+    return tuple(float(v) for v in out), tuple(float(v) for v in incoming)
 
 
 def _apply_agc(

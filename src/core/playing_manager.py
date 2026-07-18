@@ -713,6 +713,12 @@ class PlayingManager:
                 current_key=str(result.get('current_key', '')),
                 next_key=str(result.get('next_key', '')),
                 key_compatibility=float(result.get('key_compatibility', 0.0)),
+                fade_out_profile=tuple(
+                    float(value) for value in result.get('fade_out_profile', ())
+                ),
+                fade_in_profile=tuple(
+                    float(value) for value in result.get('fade_in_profile', ())
+                ),
             )
         except (KeyError, TypeError, ValueError):
             self._logger.exception('invalid crossfade worker result')
@@ -1306,9 +1312,13 @@ class PlayingManager:
         self._crossfade_gain_audio = audio
         self._crossfade_play_seq = play_seq
 
-        curve = cfg.crossfade_curve
-        player.animateVolumeCurve(0.0, duration_ms, curve, False)
-        crossfade_player.animateVolumeCurve(1.0, duration_ms, curve, True)
+        if info.fade_out_profile and info.fade_in_profile:
+            player.animateVolumeProfile(info.fade_out_profile, duration_ms)
+            crossfade_player.animateVolumeProfile(info.fade_in_profile, duration_ms)
+        else:
+            curve = cfg.crossfade_curve
+            player.animateVolumeCurve(0.0, duration_ms, curve, False)
+            crossfade_player.animateVolumeCurve(1.0, duration_ms, curve, True)
 
         handoff_delay_ms = max(1, int(duration_ms * 0.9))
         QTimer.singleShot(

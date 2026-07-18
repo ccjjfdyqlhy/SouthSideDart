@@ -305,6 +305,8 @@ def _crossfade(payload: dict[str, Any]) -> dict[str, Any]:
         'current_key': info.current_key,
         'next_key': info.next_key,
         'key_compatibility': info.key_compatibility,
+        'fade_out_profile': info.fade_out_profile,
+        'fade_in_profile': info.fade_in_profile,
     }
 
 
