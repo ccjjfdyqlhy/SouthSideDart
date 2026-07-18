@@ -133,6 +133,28 @@ class CrossFadeInfo:
             return None
 
 
+def renderTransitionSamples(
+    next_audio: AudioSegment,
+    info: CrossFadeInfo,
+    curve: str,
+) -> np.ndarray:
+    """Render the next-song portion used during the audible transition."""
+    frames = max(0, int(round(info.fade_seconds * info.sample_rate)))
+    if frames <= 0:
+        return np.zeros((0, info.channels), dtype=np.float32)
+    next_samples = _segment_to_samples(
+        next_audio[: int(np.ceil(info.fade_seconds * 1000.0)) + 1],
+        info.sample_rate,
+        info.channels,
+    )[:frames]
+    if len(next_samples) < frames:
+        padded = np.zeros((frames, info.channels), dtype=np.float32)
+        padded[: len(next_samples)] = next_samples
+        next_samples = padded
+    _, fade_in = _select_fade_curve(curve, frames)
+    return _limit_samples(next_samples * fade_in)
+
+
 _CAMELOT_MAP: dict[str, str] = {
     'C': '8B',
     'B#': '8B',
@@ -443,7 +465,7 @@ def getCrossfade(
     next_head = next[:window_ms]
     current_samples = _segment_to_samples(current_tail, sample_rate, channels)  # type: ignore
     current_analysis_samples = _segment_to_samples(
-        current_analysis, # type: ignore
+        current_analysis,  # type: ignore
         sample_rate,
         channels,  # type: ignore
     )
