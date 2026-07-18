@@ -1272,18 +1272,25 @@ class PlayingManager:
         duration_ms = max(1, int(info.fade_seconds * 1000))
         play_speed = cfg.play_speed
         play_pitch = cfg.play_pitch
+        tempo_speed = play_speed
+        if cfg.crossfade_tempo_match and info.target_speed > 0:
+            tempo_correction = max(0.85, min(1.15, 1.0 / info.target_speed))
+            tempo_speed = play_speed * tempo_correction
 
         player.stopPlaySpeedAnimation()
         player.setPlaySpeed(play_speed)
         player.setPlayPitch(play_pitch)
         crossfade_player.setGain(gain)
         crossfade_player.setVolume(0.0)
-        # Keep the live player stable. Apply tempo and key matching in a
-        # rendered transition buffer instead of mutating an active WSOLA queue.
+        # Start the next player at the beat-matched rate, then return smoothly
+        # to the user's rate while the transition is audible.
         crossfade_player.stopPlayPitchAnimation()
-        crossfade_player.setPlaySpeed(play_speed)
+        crossfade_player.stopPlaySpeedAnimation()
+        crossfade_player.setPlaySpeed(tempo_speed)
         crossfade_player.setPlayPitch(play_pitch)
         crossfade_player.play()
+        if abs(tempo_speed - play_speed) > 1e-4:
+            crossfade_player.animatePlaySpeed(play_speed, duration_ms)
 
         self.current_song = selection.song
         self.current_song_audio = audio
