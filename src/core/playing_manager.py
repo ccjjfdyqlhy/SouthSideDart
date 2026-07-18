@@ -992,7 +992,7 @@ class PlayingManager:
 
                 next_buffer: PreparedAudioBuffer | None = None
                 if self.crossfade_info is not None:
-                    next_buffer = AudioPlayer.prepareBuffer(audio)
+                    next_buffer = AudioPlayer.prepareBuffer(audio) # type: ignore
 
                 if not _is_preload_current():
                     self._logger.info('discarding stale prepared crossfade buffers')
@@ -1834,7 +1834,7 @@ class PlayingManager:
         if playlist_changed:
             event_bus.emit(PLAYLIST_CHANGED)
         self._show_original_lyrics(song_storable)
-        self._compute_gain_async(song_storable, gain_audio)
+        self._compute_gain_async(song_storable, gain_audio, play_seq)
         self._download_update_lyrics(song_storable)
 
         event_bus.emit(SONG_CHANGED, song_storable)
@@ -1908,6 +1908,7 @@ class PlayingManager:
                 if not _is_current():
                     return
                 self.current_song_audio = audio
+                self._compute_gain_async(song_storable, audio, play_seq)
                 if (
                     isinstance(self.next_song_audio, AudioSegment_)
                     and self.next_song_selection is not None
@@ -2371,6 +2372,7 @@ class PlayingManager:
         self,
         song_storable: SongStorable,
         raw_audio: AudioSegment_ | None,
+        play_seq: int,
     ) -> None:
         if raw_audio is None:
             return
@@ -2383,10 +2385,14 @@ class PlayingManager:
                 return
             gain = self._computeLoudnessGain(cfg.target_lufs, raw_audio)
             self._setStorableLoudness(song_storable, cfg.target_lufs, gain)
-            if self.current_song is song_storable:
-                self.ctx.addScheduledTask(  # type: ignore
-                    lambda g=gain: player.animateLoudnessGain(g)
-                )
+            def _apply() -> None:
+                if (
+                    play_seq == self._play_seq
+                    and self.current_song is song_storable
+                ):
+                    player.animateLoudnessGain(gain)
+
+            self.ctx.addScheduledTask(_apply)  # type: ignore
 
         threading.Thread(target=_compute_and_apply, daemon=True).start()
 
