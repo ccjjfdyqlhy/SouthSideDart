@@ -315,6 +315,8 @@ def isFullPySideInstalled(site_packages: Path = SITE_PACKAGES) -> bool:
 def getFreeThreadedEnv() -> dict[str, str]:
     env = os.environ.copy()
     env['PYTHON_GIL'] = '0'
+    # The portable runtime copied from uv retains its PEP 668 marker.
+    env['PIP_BREAK_SYSTEM_PACKAGES'] = '1'
     return env
 
 

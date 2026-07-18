@@ -508,7 +508,7 @@ class PlayingPage(QWidget):
         self.playing_manager._preload_triggered = value
 
     def translationToggled(self, state: bool):
-        self.ctx.cfg.show_translation = state
+        self.ctx.config.show_translation = state
 
     def _updateDatas(self, song: SongStorable | None = None) -> None:
         self.bg_color = mixColor(

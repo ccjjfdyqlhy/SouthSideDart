@@ -69,10 +69,14 @@ class Config:
     desktop_lyrics_y: int = 0
 
     enable_fft: bool = True
-    fft_filtering_windowsize: int = 4
+    fft_filtering_windowsize: int = 2
     fft_factor: float = 0.4
     cfft_multiple: float = 1.0
     sfft_multiple: float = 1.0
+    fft_min_frequency_hz: int = 40
+    fft_max_frequency_hz: int = 12000
+    fft_buffer_seconds: float = 5
+    fft_size: int = 4096
 
     target_lufs: int = -16
 

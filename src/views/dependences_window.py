@@ -8,20 +8,13 @@ from threading import Thread
 from typing import TYPE_CHECKING
 
 
-import hPyT
 import requests
-import shiboken6
 
 from core.audio_player import getAudioDevices
 from core.downloader import asyncDownload
-from core.dialogs import getValueBylist
 from core import theme
 from imports import (
     ProgressBar,
-    PushButton,
-    QEasingCurve,
-    QPoint,
-    QPropertyAnimation,
     QSizePolicy,
     QSpacerItem,
     QTimer,
@@ -49,7 +42,6 @@ class DependencesWindow(QWidget):
         super().__init__()
         self.ctx = ctx
         self._results: dict[str, bool] = {}
-        self._retracting = False
         self.logger = logging.getLogger(__name__)
 
         self.checkDone.connect(self._onCheckDone, Qt.ConnectionType.QueuedConnection)
@@ -59,7 +51,9 @@ class DependencesWindow(QWidget):
 
         self.setWindowTitle(tr('dependences_window.dependences_checking'))
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
         )
         self.setStyleSheet(
             f'background-color: {"#111111" if theme.isDark() else "#DDDDDD"};'
@@ -74,11 +68,6 @@ class DependencesWindow(QWidget):
         self.ffmpeg_label = SubtitleLabel()
         bindText(self.ffmpeg_label, 'dependences_window.ffmpeg_checking')
         layout.addWidget(self.ffmpeg_label)
-        self.ffmpeg_btn = PushButton('')
-        bindText(self.ffmpeg_btn, 'dependences_window.download_ffmpeg_automatically')
-        self.ffmpeg_btn.clicked.connect(self.downloadFFmpeg)
-        self.ffmpeg_btn.hide()
-        layout.addWidget(self.ffmpeg_btn)
 
         self.python_runtime_label = SubtitleLabel()
         bindText(
@@ -104,41 +93,21 @@ class DependencesWindow(QWidget):
             )
         )
 
-        self.geo_ani = QPropertyAnimation(self, b'pos', self)
-        self.geo_ani.setDuration(275)
-        self.geo_ani.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.geo_ani.finished.connect(self._onGeometryAnimationFinished)
-
         self.setLayout(layout)
         self.setFixedSize(self.ctx.launch_window.size())
         self.move(self.ctx.launch_window.pos())
         self.show()
+        self.raise_()
+        self.activateWindow()
 
         self.ctx.app.processEvents()
-        self.ctx.launch_window.raise_()
 
         QTimer.singleShot(500, self.startCheck)
 
     def downloadFFmpeg(self):
-        self.ffmpeg_btn.setEnabled(False)
-        self.resize(self.ctx.app.primaryScreen().size() * 0.5)
-        hPyT.window_frame.center(self)
-        source = getValueBylist(
-            self,
-            'select a source to download',
-            'choose by your network',
-            ['BtBN (Github)', 'gyan.dev'],
-        )
         self.ffmpeg_label.setStyleSheet('')
-        if not source:
-            self.ffmpeg_btn.setEnabled(True)
-            return
 
-        url = (
-            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip'
-            if source == 'BtBN (Github)'
-            else 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-        )
+        url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip'
 
         self.probar.setRange(0, 1000)
         self.probar.setValue(0)
@@ -157,7 +126,6 @@ class DependencesWindow(QWidget):
                 self.ffmpeg_label.setText(
                     tr('dependences_window.ffmpeg_download_failed')
                 )
-                self.ffmpeg_btn.setEnabled(True)
                 return
 
             self.ffmpeg_label.setText(tr('dependences_window.ffmpeg_extracting'))
@@ -197,7 +165,6 @@ class DependencesWindow(QWidget):
                 self.ffmpeg_label.setText(
                     tr('dependences_window.ffmpeg_extraction_failed')
                 )
-                self.ffmpeg_btn.setEnabled(True)
                 return
             finally:
                 if os.path.exists(zip_path):
@@ -210,7 +177,6 @@ class DependencesWindow(QWidget):
 
             self.ffmpeg_label.setText(tr('dependences_window.ffmpeg_checking_2'))
             self.ctx.app.processEvents()
-            self.ffmpeg_btn.hide()
             self.checkFFmpeg()
 
         manager = asyncDownload(url, parent=self, finished=_finished)
@@ -298,63 +264,23 @@ class DependencesWindow(QWidget):
             and all(self._results.values())
         ):
             self.ctx.dependences_available = True
-            self._retracting = True
             self.allChecked.emit()
+            self.hide()
+            self.deleteLater()
+            return
 
         if name == 'FFmpeg' and not ok:
-            self.ffmpeg_btn.show()
+            QTimer.singleShot(300, self.downloadFFmpeg)
 
         self.updatePosition()
 
     def updatePosition(self) -> None:
-        screen_size = self.ctx.app.primaryScreen().size()
-        target_point = None
-        if self._retracting:
-            if self.ctx.launch_window is not None and shiboken6.isValid(
-                self.ctx.launch_window
-            ):
-                target_point = self.ctx.launch_window.pos()
-        elif (
-            len(self._results) == 5
-            and self.ctx is not None
-            and not all(self._results.values())
-        ):
-            self.raise_()
-            target_point = QPoint(
-                int((screen_size.width() - self.width()) * 0.5),
-                int((screen_size.height() - self.height()) * 0.5),
-            )
-        else:
-            if self.ctx.launch_window is not None and shiboken6.isValid(
-                self.ctx.launch_window
-            ):
-                target_point = QPoint(
-                    self.ctx.launch_window.x() + self.ctx.launch_window.width(),
-                    self.ctx.launch_window.y(),
-                )
-        if target_point is None:
+        launch_window = self.ctx.launch_window
+        if launch_window is None:
             return
-        if self.pos() == target_point:
-            if self._retracting:
-                QTimer.singleShot(0, self._onGeometryAnimationFinished)
-            return
-        if (
-            self.geo_ani.state() == QPropertyAnimation.State.Running
-            and self.geo_ani.endValue() == target_point
-        ):
-            return
-        if self.geo_ani.state() == QPropertyAnimation.State.Running:
-            self.geo_ani.stop()
-        self.geo_ani.setStartValue(self.pos())
-        self.geo_ani.setEndValue(target_point)
-        self.geo_ani.start()
-
-    def _onGeometryAnimationFinished(self) -> None:
-        if not self._retracting:
-            return
-        self._retracting = False
-        self.hide()
-        self.deleteLater()
+        self.setFixedSize(launch_window.size())
+        self.move(launch_window.pos())
+        self.raise_()
 
     def checkFFmpeg(self) -> None:
         try:

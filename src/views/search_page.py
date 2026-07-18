@@ -45,8 +45,8 @@ class SearchPage(QWidget):
 
         global_layout = QVBoxLayout()
 
-        if self.ctx.cfg.search_type not in ('Songs', 'Playlists'):
-            self.ctx.cfg.search_type = 'Songs'
+        if self.ctx.config.search_type not in ('Songs', 'Playlists'):
+            self.ctx.config.search_type = 'Songs'
         self.search_type = ComboBox()
         self._refreshSearchTypeBox()
         self.search_type.currentIndexChanged.connect(self.searchTypeChanged)
@@ -110,7 +110,7 @@ class SearchPage(QWidget):
         ca.img_label.setPixmap(QPixmap(byte))
 
     def _refreshSearchTypeBox(self) -> None:
-        current = self.ctx.cfg.search_type
+        current = self.ctx.config.search_type
         data = self.search_type.currentData()
         if data in ('Songs', 'Playlists'):
             current = data
@@ -130,14 +130,14 @@ class SearchPage(QWidget):
         search_type = self.search_type.currentData()
         if search_type not in ('Songs', 'Playlists'):
             return
-        self.ctx.cfg.search_type = search_type
+        self.ctx.config.search_type = search_type
         if self.last_search:
             self.search(self.last_search)
 
     def search(self, keywords: str, offset: int = 0) -> None:
         self.last_search = keywords
         self.searching = True
-        search_type = self.ctx.cfg.search_type
+        search_type = self.ctx.config.search_type
 
         bar = self.lst.verticalScrollBar()
         bar.setValue(bar.minimum())

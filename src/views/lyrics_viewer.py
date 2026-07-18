@@ -15,8 +15,8 @@ from imports import (
     QEvent,
     QPen,
     QPointF,
+    QRectF,
     Qt,
-    QTimer,
     event_bus,
 )
 
@@ -60,7 +60,7 @@ class LyricsViewer(QWidget):
         self._ymgr = ctx.ymgr
         self._player = ctx.player
         self._mwindow = ctx.main_window
-        self._cfg = ctx.cfg
+        self._cfg = ctx.config
         self._dp = ctx.playing_page
 
         self.current_index: int = 0
@@ -108,19 +108,17 @@ class LyricsViewer(QWidget):
 
         self.translation_timer = EaseOutTimer(0.4, 4)
 
+        self._view_position = 0.0
+        self._view_lines: list[LyricInfo | YRCLyricInfo] = []
+        self._view_current_index = -1
+        self._view_use_yrc = False
+        self._view_y_offsets: list[float] = []
+        self._view_top_offset = 0.0
+        self._view_total_height = 0.0
         self._shown_lines: list[int] = []
         self._line_alphas: dict[int, EaseOutTimer] = {}
-        self._layout_payload: dict[str, object] = {
-            'schema': 'southside_lyric_layout_v1',
-            'ready': False,
-            'lines': [],
-        }
 
         self.last_lyric: YRCLyricInfo | LyricInfo | None = None
-
-        self._visibility_timer = QTimer(self)
-        self._visibility_timer.timeout.connect(self._updateShownLines)
-        self._visibility_timer.start(50)
 
         event_bus.subscribe(REFRESH_RATE_CHANGED, self._onRefreshRateChanged)
         event_bus.subscribe(REPAINT, self._onRepaintTick)
@@ -148,11 +146,66 @@ class LyricsViewer(QWidget):
         self.updateDatas(multiple_factor)
 
     def updateDatas(self, multiple_factor: float = 1.0) -> None:
-        self._layout_payload = self.lyricLayoutPayload(
-            update_animation=True,
-            multiple_factor=multiple_factor,
-        )
+        self._updateViewLayout(multiple_factor)
         self.update()
+
+    def _viewPosition(self) -> float:
+        return self.ctx.playing_manager.getDisplaySmoothPosition()
+
+    def _updateViewLayout(self, multiple_factor: float = 1.0) -> None:
+        position = self._viewPosition()
+        lines, current_index, use_yrc = self._lyricsForPosition(position)
+        if not lines:
+            self._view_position = position
+            self._view_lines = []
+            self._view_current_index = -1
+            self._view_use_yrc = False
+            self._view_y_offsets = []
+            self._view_top_offset = 0.0
+            self._view_total_height = 0.0
+            self._shown_lines = []
+            return
+
+        self.translation_timer.target_value = (
+            1.0 if self.ctx.config.show_translation else 0.0
+        )
+        y_offsets, total_height = self._lineOffsets(lines, use_yrc)
+        if not self.selecting:
+            self.target_draw_offset = (
+                -y_offsets[current_index]
+                if 0 <= current_index < len(y_offsets)
+                else 0
+            )
+        elif time.time() - self.last_wheel > 3:
+            self.selecting = False
+
+        self.target_draw_offset = max(-total_height, min(0.0, self.target_draw_offset))
+        self._updateDrawOffset(multiple_factor)
+        if not all(
+            math.isfinite(value)
+            for value in (self.draw_offset, self.target_draw_offset, self.acc)
+        ):
+            self.draw_offset = 0
+            self.target_draw_offset = 0
+            self.acc = 0
+
+        current_baseline = self._currentBaseline(lines, current_index, use_yrc)
+        top_offset = self.draw_offset + current_baseline
+        self._view_position = position
+        self._view_lines = lines
+        self._view_current_index = current_index
+        self._view_use_yrc = use_yrc
+        self._view_y_offsets = y_offsets
+        self._view_top_offset = top_offset
+        self._view_total_height = total_height
+        self._shown_lines = self._visibleIndexes(lines, y_offsets, top_offset)
+        for i in self._shown_lines:
+            if i not in self._line_alphas:
+                self._line_alphas[i] = EaseOutTimer(0.2, 2)
+            self._line_alphas[i].target_value = 255 if i == current_index else 120
+        for i in list(self._line_alphas):
+            if i not in self._shown_lines:
+                self._line_alphas.pop(i)
 
     def _onRefreshRateChanged(self):
         self.refresh_rate = max(60, self._app.primaryScreen().refreshRate() / 2)
@@ -161,7 +214,7 @@ class LyricsViewer(QWidget):
         self.delta = 1 / self.refresh_rate
 
     def _hasTranslation(self) -> bool:
-        return bool(self._transmgr.parsed) if self.ctx.cfg.show_translation else False
+        return bool(self._transmgr.parsed) if self.ctx.config.show_translation else False
 
     def _timeKey(self, value: float) -> int:
         return round(value * 1000)
@@ -357,16 +410,6 @@ class LyricsViewer(QWidget):
             'a': color.alpha(),
         }
 
-    def _colorFromPayload(self, value: object) -> QColor:
-        if not isinstance(value, dict):
-            return QColor(0, 0, 0, 0)
-        return QColor(
-            int(value.get('r', 0)),
-            int(value.get('g', 0)),
-            int(value.get('b', 0)),
-            int(value.get('a', 0)),
-        )
-
     def _primaryColorForLine(
         self,
         line: LyricInfo | YRCLyricInfo,
@@ -445,14 +488,11 @@ class LyricsViewer(QWidget):
 
     def lyricLayoutPayload(
         self,
-        position: float | None = None,
-        update_animation: bool = True,
-        multiple_factor: float = 1.0,
     ) -> dict[str, object]:
-        if position is None:
-            position = self.ctx.playing_manager.getDisplayPosition()
-
-        lines, current_index, use_yrc = self._lyricsForPosition(position)
+        position = self._view_position
+        lines = self._view_lines
+        current_index = self._view_current_index
+        use_yrc = self._view_use_yrc
         if not lines:
             return {
                 'schema': 'southside_lyric_layout_v1',
@@ -461,54 +501,24 @@ class LyricsViewer(QWidget):
                 'lines': [],
             }
 
-        self.translation_timer.target_value = (
-            1.0 if self.ctx.cfg.show_translation else 0.0
-        )
-
-        y_offsets, total_height = self._lineOffsets(lines, use_yrc)
-
-        if update_animation:
-            if not self.selecting:
-                self.target_draw_offset = (
-                    -y_offsets[current_index]
-                    if 0 <= current_index < len(y_offsets)
-                    else 0
-                )
-            else:
-                if time.time() - self.last_wheel > 3:
-                    self.selecting = False
-
-            if self.target_draw_offset > 0:
-                self.target_draw_offset = 0
-            if self.target_draw_offset < -total_height:
-                self.target_draw_offset = -total_height
-
-            self._updateDrawOffset(multiple_factor)
-        if not all(
-            math.isfinite(value)
-            for value in (self.draw_offset, self.target_draw_offset, self.acc)
-        ):
-            self.draw_offset = 0
-            self.target_draw_offset = 0
-            self.acc = 0
-        current_baseline = self._currentBaseline(lines, current_index, use_yrc)
-        top_offset = self.draw_offset + current_baseline
+        y_offsets = self._view_y_offsets
+        total_height = self._view_total_height
+        top_offset = self._view_top_offset
         center_y = self.height() * 0.5
-        shown = self._visibleIndexes(lines, y_offsets, top_offset)
-        self._shown_lines = shown
-        self.hovering_lyric = None
+        shown = self._shown_lines
 
         payload_lines: list[dict[str, object]] = []
         current_yrc_clip_ratio = 0.0
         current_yrc_clip_width = 0.0
         for i in shown:
             line = lines[i]
-            if not self._line_alphas.get(i):
-                self._line_alphas[i] = EaseOutTimer(0.2, 2)
-            timer = self._line_alphas[i]
             is_current_line = i == current_index
-            timer.target_value = 255 if is_current_line else 120
-            alpha = timer.current_value
+            timer = self._line_alphas.get(i)
+            alpha = (
+                timer.current_value
+                if timer is not None
+                else (255.0 if is_current_line else 120.0)
+            )
 
             baseline_y = top_offset + y_offsets[i]
             translation_text = (
@@ -524,8 +534,6 @@ class LyricsViewer(QWidget):
             if is_current_line:
                 current_yrc_clip_ratio = yrc_clip_ratio
                 current_yrc_clip_width = yrc_clip_width
-                self.current_index = i
-                self.yrc_current_ratio = yrc_clip_ratio
 
             hit_bottom = baseline_y + self.metri.descent() + self.theight + 5
             is_hovered = bool(
@@ -536,7 +544,6 @@ class LyricsViewer(QWidget):
             hover_time_text = ''
             hover_time_x = 0.0
             if is_hovered:
-                self.hovering_lyric = line
                 info = float2time(line.time)
                 hover_time_text = f'{info.minutes:02d}:{info.seconds:02d}'
                 hover_time_x = (
@@ -599,13 +606,6 @@ class LyricsViewer(QWidget):
                 }
             )
 
-        to_remove = []
-        for key in self._line_alphas:
-            if key not in shown:
-                to_remove.append(key)
-        for item in to_remove:
-            self._line_alphas.pop(item)
-
         return {
             'schema': 'southside_lyric_layout_v1',
             'ready': True,
@@ -642,34 +642,38 @@ class LyricsViewer(QWidget):
         self.mouse_pos = event.position()
         return super().mouseMoveEvent(event)
 
-    def _updateShownLines(self):
-        self._layout_payload = self.lyricLayoutPayload(update_animation=False)
-        self.update()
-
     def paintEvent(self, event: QPaintEvent) -> None:
-        payload = self._layout_payload
-        if not payload.get('ready'):
-            return
         if not self.isVisible():
             return
 
-        use_yrc = bool(payload.get('use_yrc', False))
+        position = self._view_position
+        lines = self._view_lines
+        current_index = self._view_current_index
+        use_yrc = self._view_use_yrc
+        if not lines:
+            return
+        y_offsets = self._view_y_offsets
+        top_offset = self._view_top_offset
 
         painter = QPainter(self)
         painter.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
         )
         painter.setFont(self.ft)
+        self.hovering_lyric = None
 
-        for item in payload.get('lines', []):  # type: ignore
-            if not isinstance(item, dict):
-                continue
-            is_current_line = bool(item.get('is_current', False))
-            is_metadata = bool(item.get('is_metadata', False))
-            y = float(item.get('baseline_y', 0.0))
-            x = float(item.get('x', self.draw_x_offset))
-            alpha = int(item.get('alpha', 0))
-            color = self._colorFromPayload(item.get('primary_color', {}))
+        for i in self._shown_lines:
+            line = lines[i]
+            is_current_line = i == current_index
+            timer = self._line_alphas.get(i)
+            alpha = int(
+                timer.current_value
+                if timer is not None
+                else (255 if is_current_line else 120)
+            )
+            y = top_offset + y_offsets[i]
+            x = self.draw_x_offset
+            color = self._primaryColorForLine(line, is_current_line, alpha)
             if is_current_line and self.ctx.debugging:
                 color = QColor(0, 255, 0)
 
@@ -680,14 +684,16 @@ class LyricsViewer(QWidget):
                 painter.drawText(10, toQtInt(y + 15), f'Baseline {toQtInt(y)}')
                 painter.setFont(self.ft)
 
-            content = str(item.get('draw_text', ''))
-            if is_current_line and use_yrc and not is_metadata and content:
-                base_color = self._colorFromPayload(item.get('yrc_base_color', {}))
+            content = line.content.strip()
+            if is_current_line and use_yrc and not line.isMetadata and content:
+                base_color = QColor(color)
+                base_color.setAlpha(120)
                 painter.setPen(base_color)
                 painter.drawText(toQtInt(x), toQtInt(y), content)
 
-                clip_w = float(item.get('yrc_clip_width', 0.0))
-                yrc_current_ratio = float(item.get('yrc_clip_ratio', 0.0))
+                yrc_current_ratio, clip_w = self._yrcClipPayload(line, position)
+                self.current_index = i
+                self.yrc_current_ratio = yrc_current_ratio
                 if clip_w > 0:
                     clip_y = toQtInt(y - self.metri.ascent())
                     clip_h = toQtInt(self.font_height)
@@ -704,10 +710,7 @@ class LyricsViewer(QWidget):
                         )
                         painter.setFont(self.ft)
                     painter.setClipRect(
-                        toQtInt(x),
-                        clip_y,
-                        toQtInt(math.ceil(clip_w)),
-                        clip_h,
+                        QRectF(x, clip_y, clip_w, clip_h),
                     )
                     c = QColor(color)
                     c.setAlpha(alpha)
@@ -719,14 +722,14 @@ class LyricsViewer(QWidget):
                 painter.drawText(
                     toQtInt(x),
                     toQtInt(y),
-                    str(item.get('draw_text', '')),
+                    content,
                 )
 
             if self.ctx.debugging:
-                center = int(item.get('debug_center_y', 0))
+                center = self.height() // 2
 
                 painter.setPen(QPen(QColor(255, 120, 120), 1))
-                delta_ = int(item.get('debug_offset_target_y', center))
+                delta_ = -int(self.target_draw_offset - self.draw_offset) + center
                 painter.drawLine(self.width() - 200, delta_, self.width(), delta_)
                 painter.setFont(self.db_ft)
                 painter.drawText(self.width() - 200, delta_ + 15, 'Offset Target')
@@ -736,29 +739,42 @@ class LyricsViewer(QWidget):
                 painter.drawText(self.width() - 200, center + 15, 'Offset')
 
                 painter.setPen(QPen(QColor(255, 75, 255), 1))
-                delta_ = int(item.get('debug_acc_target_y', center))
+                delta_ = -int(self.target_acc) + center
                 painter.drawLine(self.width() - 400, delta_, self.width() - 200, delta_)
                 painter.drawText(self.width() - 400, delta_ + 15, 'Acceleration Target')
 
                 painter.setPen(QPen(QColor(75, 75, 255), 1))
-                delta_ = int(item.get('debug_acc_y', center))
+                delta_ = -int(self.target_acc - self.acc) + center
                 painter.drawLine(self.width() - 400, delta_, self.width() - 200, delta_)
                 painter.drawText(self.width() - 400, delta_ + 15, 'Acceleration')
 
-            translation_text = str(item.get('translation', ''))
-            if translation_text and int(item.get('translation_alpha', 0)) > 0:
-                painter.setFont(self.tft)
-                painter.setPen(
-                    self._colorFromPayload(item.get('translation_color', {}))
+            translation_text = (
+                self._translationTextForLine(line, use_yrc)
+                if self._shouldDrawTranslationForLine(
+                    line, use_yrc, is_current_line
                 )
+                else ''
+            )
+            translation_color = self._translationColor(alpha)
+            if translation_text and translation_color.alpha() > 0:
+                translation_y = y + self.metri.descent() + 2 + self.tmetri.ascent()
+                painter.setFont(self.tft)
+                painter.setPen(translation_color)
                 painter.drawText(
                     toQtInt(x),
-                    toQtInt(item.get('translation_baseline_y', y)),
+                    toQtInt(translation_y),
                     translation_text,
                 )
                 painter.setFont(self.ft)
 
-            if bool(item.get('is_hovered', False)):
+            hit_bottom = y + self.metri.descent() + self.theight + 5
+            is_hovered = bool(
+                self.mouse_pos
+                and self.mouse_pos.y() > y - self.metri.ascent()
+                and self.mouse_pos.y() < hit_bottom
+            )
+            if is_hovered:
+                self.hovering_lyric = line
                 if self.selecting:
                     painter.setBrush(
                         QColor(255, 255, 255, 100)
@@ -775,9 +791,13 @@ class LyricsViewer(QWidget):
                         5,
                     )
                     painter.setPen(color)
-                    timetxt = str(item.get('hover_time_text', ''))
+                    info = float2time(line.time)
+                    timetxt = f'{info.minutes:02d}:{info.seconds:02d}'
+                    hover_time_x = (
+                        self.width() - self.metri.horizontalAdvance(timetxt) - 5
+                    )
                     painter.drawText(
-                        toQtInt(float(item.get('hover_time_x', 0.0))),
+                        toQtInt(hover_time_x),
                         toQtInt(y),
                         timetxt,
                     )

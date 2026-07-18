@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 
 from core.app_context import AppContext
 
@@ -674,7 +673,9 @@ class MainWindow(FluentWindowBase):
 
     def closeEvent(self, e: QCloseEvent):
         e.accept()
-        sys.exit(0)
+        self.hide()
+        self.ctx.playing_manager.stopPlaybackForShutdown()
+        self.ctx.app.quit()
 
     def resizeEvent(self, e):
         self.titleBar.move(20, 0)

@@ -776,6 +776,7 @@ class LLMViewerPanel(QFrame):
             bindIcon(self.llm_send_btn, 'stop_gen')
             self.llm_send_btn.setToolTip(tr('main_window.llm_stop'))
         else:
+            self.scroll_timer.stop()
             self.llm_send_btn.setIcon(FluentIcon.SEND)
             self.llm_send_btn.setToolTip(tr('main_window.llm_send'))
 

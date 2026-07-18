@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from typing import Callable, cast
+from typing import TYPE_CHECKING, Callable, cast
 
 from core.app_context import AppContext
 
@@ -67,6 +67,9 @@ from core.ws_server import (
 
 from views.list_widget import SScrollArea, setTransparentBackground
 from views.number_viewer import NumberViewer, SettableNumberViewer
+
+if TYPE_CHECKING:
+    from core.audio_player import AudioPlayer
 
 
 class SectionContainer(QWidget):
@@ -261,12 +264,7 @@ class SettingPage(QWidget):
         event_bus.subscribe(WEBSOCKET_DISCONNECTED, self._onWsDisconnected)
         event_bus.subscribe(POST_THEME_CHANGED, self.updateTheme)
         event_bus.subscribe(LANGUAGE_CHANGED, self.updateLanguage)
-        event_bus.subscribe(
-            DB_CHANGED,
-            lambda v: self.now_volume.setText(
-                tr('setting_page.current_volume_db_value', value=f'{v:.1f}')
-            ),
-        )
+        event_bus.subscribe(DB_CHANGED, self._onVolumeChanged)
 
     @property
     def _dp(self):
@@ -295,7 +293,7 @@ class SettingPage(QWidget):
         self._refreshConnectionStatus()
         if hasattr(self, 'target_lufs_label'):
             self.target_lufs_label.setText(
-                tr('setting_page.target_lufs_value', value=cfg.target_lufs)
+                tr('setting_page.target_lufs_value')
             )
 
     def _initOptions(self) -> None:
@@ -384,7 +382,7 @@ class SettingPage(QWidget):
             'setting_page.enable_stereo',
             'setting_page.enable_stereo_effect',
             'stereo',
-            lambda: self._player.restartProducer(),
+            lambda: self.ctx.playing_manager.restartPlaybackEffects(),
             advanced=True,
         )
         self.addNumberSetting(
@@ -394,14 +392,14 @@ class SettingPage(QWidget):
             30,
             5,
             'stereo_haas_index',
-            lambda val: self._player.restartProducer(),
+            lambda val: self.ctx.playing_manager.restartPlaybackEffects(),
             advanced=True,
         )
         self.addCheckSetting(
             'setting_page.enable_reverb',
             'setting_page.enable_reverb_effect',
             'enable_reverb',
-            lambda: self._player.restartProducer(),
+            lambda: self.ctx.playing_manager.restartPlaybackEffects(),
             advanced=True,
         )
         self.addNumberSetting(
@@ -411,7 +409,7 @@ class SettingPage(QWidget):
             3,
             0.05,
             'reverb_intensity',
-            lambda val: self._player.restartProducer(),
+            lambda val: self.ctx.playing_manager.restartPlaybackEffects(),
             advanced=True,
         )
         self.addCheckSetting(
@@ -440,7 +438,7 @@ class SettingPage(QWidget):
             3,
             0.1,
             'play_speed',
-            lambda val: self._player.setPlaySpeed(val),
+            lambda val: self.ctx.playing_manager.setPlaySpeed(val),
         )
         self.addNumberSetting(
             'setting_page.playback_pitch',
@@ -449,7 +447,7 @@ class SettingPage(QWidget):
             12,
             0.1,
             'play_pitch',
-            lambda val: self._player.setPlayPitch(val),
+            lambda val: self.ctx.playing_manager.setPlayPitch(val),
             advanced=True,
         )
         self.addNumberSetting(
@@ -617,6 +615,30 @@ class SettingPage(QWidget):
             0.05,
             'fft_factor',
             advanced=True,
+        )
+        self.addNumberSetting(
+            'setting_page.fft_buffer_seconds',
+            'setting_page.fft_buffer_seconds_desc',
+            0.1,
+            60,
+            0.1,
+            'fft_buffer_seconds',
+            advanced=True,
+            onChanged=lambda seconds: self.ctx.main_window.controller.setFFTBufferSeconds(
+                seconds
+            ),
+            easy=False
+        )
+        self.addNumberSetting(
+            'setting_page.fft_size',
+            'setting_page.fft_size_desc',
+            1024,
+            32768,
+            1024,
+            'fft_size',
+            onChanged=lambda size: self.fftSizeChanged(size),
+            advanced=True,
+            easy=False
         )
         self.addNumberSetting(
             'setting_page.southside_music_side_fft_multiple_factor',
@@ -791,6 +813,15 @@ class SettingPage(QWidget):
         cfg.show_advanced_settings = self.advanced_settings_box.isChecked()
         saveConfig()
         self._applyAdvancedSettingsVisibility()
+
+    def fftSizeChanged(self, size: float | int) -> None:
+        fft_size = int(size)
+        player = self.ctx.playing_manager._player
+        if player is not None:
+            player.fft_size = fft_size
+        crossfade_player = self.ctx.playing_manager._crossfade_player
+        if crossfade_player is not None:
+            crossfade_player.fft_size = fft_size
 
     def _easyTextKey(self, key: str) -> str:
         easy_key = f'{key}_easy'
@@ -983,7 +1014,15 @@ class SettingPage(QWidget):
     def _onWsDisconnected(self):
         self._refreshConnectionStatus(False)
 
-    def _onVolumeChanged(self, volume: float):
+    def _onVolumeChanged(self, player: AudioPlayer, volume: float) -> None:
+        manager = self.ctx.playing_manager
+        active_player = (
+            manager._crossfade_player
+            if manager.crossfading and manager._crossfade_player is not None
+            else self.ctx.player
+        )
+        if player is not active_player:
+            return
         self.now_volume.setText(
             tr(
                 'setting_page.current_volume_db_value',

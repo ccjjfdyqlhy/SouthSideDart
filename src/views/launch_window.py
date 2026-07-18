@@ -1,21 +1,18 @@
 from __future__ import annotations
+import threading
+import time
 
-from imports import (
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import (
     QApplication,
-    IndeterminateProgressBar,
     QLabel,
+    QProgressBar,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
     QWidget,
-    Qt,
-    SubtitleLabel,
-    tr,
 )
-from qfluentwidgets import TitleLabel
-import hPyT
-
-from core import theme
 
 
 class LaunchWindow(QWidget):
@@ -28,16 +25,20 @@ class LaunchWindow(QWidget):
             | Qt.WindowType.Tool
         )
         self.setFixedSize(app.primaryScreen().size() * 0.25)
-        hPyT.window_frame.center(self)
+        screen_geometry = app.primaryScreen().availableGeometry()
+        self.move(screen_geometry.center() - self.rect().center())
 
         self._stack: list[str] = []
 
         launchlayout = QVBoxLayout()
+        title_label = QLabel('Southside Music')
+        title_label.setStyleSheet('font-size: 28px; font-weight: 600;')
         launchlayout.addWidget(
-            TitleLabel('Southside Music'),
+            title_label,
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
         )
-        self.sublabel = SubtitleLabel(tr('launch_window.launching'))
+        self.sublabel = QLabel('Launching...')
+        self.sublabel.setStyleSheet('font-size: 16px;')
         launchlayout.addWidget(
             self.sublabel,
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
@@ -52,17 +53,27 @@ class LaunchWindow(QWidget):
         )
         self.subtitlel = QLabel()
         launchlayout.addWidget(self.subtitlel)
-        launchlayout.addWidget(IndeterminateProgressBar())
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, 0)
+        progress_bar.setTextVisible(False)
+        progress_bar.setFixedHeight(4)
+        launchlayout.addWidget(progress_bar)
         self.setLayout(launchlayout)
 
+        is_light = app.palette().color(QPalette.ColorRole.Window).lightness() > 127
         self.setStyleSheet(
-            f'QWidget {{ background-color: {"#DDDDDD" if theme.isLight() else "#111111"} }} QLabel {{ color: {"white" if theme.isDark() else "black"}; }}'
+            f'QWidget {{ background-color: {"#dddddd" if is_light else "#111111"}; }} '
+            f'QLabel {{ color: {"black" if is_light else "white"}; }}'
         )
 
         self.show()
+        self.raise_()
+        self.activateWindow()
+        self._app.processEvents()
 
     def subtitle(self, text: str) -> None:
         self.subtitlel.setText(text)
+        self._app.processEvents()
 
     def clear(self) -> None:
         pass

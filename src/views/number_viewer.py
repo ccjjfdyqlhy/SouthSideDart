@@ -3,7 +3,7 @@ from PySide6.QtGui import QHideEvent, QPaintEvent, QShowEvent, QWheelEvent
 
 from core.app_context import AppContext
 from core.smooth import EaseOutTimer
-from imports import QTimer, QWidget, QFont, QPainter, QFontMetricsF, Signal
+from imports import QWidget, QFont, QPainter, QFontMetricsF, Signal
 from services.events import event_bus
 from services.events.events import REPAINT
 
@@ -42,7 +42,7 @@ class NumberViewer(QWidget):
         for i, char in enumerate(self.cur_text):
             if not self.width_map.get(char):
                 self.width_map[char] = self.metri.horizontalAdvance(char)
-            if not char in self.numbers:
+            if char not in self.numbers:
                 continue
             digit = int(char)
             if not self.y_map.get(i):
@@ -82,13 +82,19 @@ class NumberViewer(QWidget):
         )
         painter.setFont(self.ft)
 
-        baseline = self.metri.ascent()
+        text_top = max(0.0, (self.height() - self.full_height) / 2)
+        baseline = text_top + self.metri.ascent()
         x = 0
         for pos, char in enumerate(self.cur_text):
             if char not in self.width_map:
                 self.width_map[char] = self.metri.horizontalAdvance(char)
             width = self.width_map[char]
-            painter.setClipRect(int(x), 0, int(width), self.height())
+            painter.setClipRect(
+                int(x),
+                int(text_top),
+                int(width),
+                int(self.full_height + 1),
+            )
             if char not in self.numbers:
                 painter.drawText(int(x), int(baseline), char)
                 x += width

@@ -40,10 +40,6 @@ TRANSLATIONS: dict[str, list[str]] = {
     'dependences_window.available': ['available', '可用'],
     'dependences_window.count_device_s': ['{count} device(s)', '{count} 个设备'],
     'dependences_window.dependences_checking': ['Dependences Checking', '依赖检查'],
-    'dependences_window.download_ffmpeg_automatically': [
-        'Download FFmpeg Automatically',
-        '自动下载 FFmpeg',
-    ],
     'dependences_window.failed': ['Failed', '失败'],
     'dependences_window.ffmpeg_checking': ['FFmpeg: Checking', 'FFmpeg：检查中'],
     'dependences_window.ffmpeg_checking_2': [
@@ -976,7 +972,7 @@ TRANSLATIONS: dict[str, list[str]] = {
         '立体声 Haas 延迟(ms)',
     ],
     'setting_page.target_lufs': ['Target LUFS', '目标 LUFS'],
-    'setting_page.target_lufs_value': ['Target LUFS: {value}', '目标 LUFS'],
+    'setting_page.target_lufs_value': ['Target LUFS: ', '目标 LUFS: '],
     'setting_page.target_volume_normalization_for_playback': [
         'Target volume normalization for playback.',
         '播放目标响度标准化。',
@@ -1027,6 +1023,19 @@ TRANSLATIONS: dict[str, list[str]] = {
     'setting_page.download_concurrent_threads_description': [
         'the number of threads that launch when download(larger is NOT better)',
         '下载时启动的线程数量(并不是越大越好)',
+    ],
+    'setting_page.fft_buffer_seconds': [
+        'FFT Normalization Peak-Hold Duration (Seconds)',
+        'FFT 归一化峰值保持时长（秒）',
+    ],
+    'setting_page.fft_buffer_seconds_desc': [
+        'How long recent peak amplitudes are retained for normalization. Longer durations make the display adapt more slowly when the peak level drops.',
+        '用于归一化的近期峰值保留时长。时长越长，频谱对峰值下降的适应越慢。',
+    ],
+    'setting_page.fft_size': ['FFT Sampling Size', 'FFT 采样大小'],
+    'setting_page.fft_size_desc': [
+        'larger value makes more data points on',
+        '更大的值代表更密集的数据点'
     ],
     'song_card.add_to': ['Add to ...', '添加到...'],
     'song_card.add_to_folder': ['Add to Folder', '添加到文件夹'],

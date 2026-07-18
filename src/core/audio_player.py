@@ -27,7 +27,7 @@ from imports import (
     Property,
 )
 from services.events.events import COLLECT_DEBUG_INFO, EMIT_DEBUG_INFO
-from typing import Any, Optional, override
+from typing import Any, Callable, Optional, override
 import threading
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import resample_poly
@@ -350,6 +350,13 @@ def decodeAudioWithSidecar(
     return PatchedAudioSegment.from_file(file)
 
 
+@dataclass(frozen=True)
+class PreparedAudioBuffer:
+    samples: np.ndarray
+    sample_rate: int
+    channels: int
+
+
 class AudioPlayer(QObject):
     onFullFinished = Signal()
     onEndingNoSound = Signal()
@@ -369,6 +376,10 @@ class AudioPlayer(QObject):
 
         self.current_index: int = 0
         self._playback_time: float = 0.0
+        self._smooth_position_start: float = 0.0
+        self._smooth_position_end: float = 0.0
+        self._smooth_position_started_at: float = 0.0
+        self._smooth_position_duration: float = 0.0
         self.is_playing: bool = False
         self.is_paused: bool = False
         self.stream: Optional[sd.OutputStream] = None
@@ -380,12 +391,12 @@ class AudioPlayer(QObject):
         self._speed_animating_flag: bool = False
 
         self.fft_enabled = True
-        self.fft_size = 1024
+        self.fft_size = int(cfg.fft_size)
 
         self.play_speed = cfg.play_speed
         self.play_pitch = cfg.play_pitch
 
-        self._BLOCK_SIZE = 4096
+        self._BLOCK_SIZE = 2048
 
         self._audio_queue: Queue[tuple[np.ndarray, int] | None] = Queue(
             maxsize=_PRODUCER_QUEUE_BLOCKS
@@ -482,7 +493,8 @@ class AudioPlayer(QObject):
             ],
         )
 
-    def _prepareSamples(self, audio: PatchedAudioSegment) -> np.ndarray:
+    @staticmethod
+    def _prepareSamples(audio: PatchedAudioSegment) -> np.ndarray:
         samples_raw = np.array(audio.get_array_of_samples(), dtype=np.float32)
         max_val = np.iinfo(audio.array_type).max if audio.sample_width != 4 else 2**31
         normalized = samples_raw / max_val
@@ -595,10 +607,16 @@ class AudioPlayer(QObject):
     def _decodeFile(self, file_path: Path) -> PatchedAudioSegment:
         return PatchedAudioSegment.from_file(str(file_path))
 
-    def _applyAudio(self, audio: PatchedAudioSegment) -> None:
-        self.sample_rate = audio.frame_rate
-        self.samples = self._prepareSamples(audio)
-        self.channels = self.samples.shape[1] if self.samples.ndim == 2 else 1
+    @classmethod
+    def prepareBuffer(cls, audio: PatchedAudioSegment) -> PreparedAudioBuffer:
+        samples = cls._prepareSamples(audio)
+        channels = samples.shape[1] if samples.ndim == 2 else 1
+        return PreparedAudioBuffer(samples, audio.frame_rate, channels)
+
+    def _applyPreparedBuffer(self, prepared: PreparedAudioBuffer) -> None:
+        self.sample_rate = prepared.sample_rate
+        self.samples = prepared.samples
+        self.channels = prepared.channels
         self.output_channels = 2
 
         self.current_index = 0
@@ -613,6 +631,9 @@ class AudioPlayer(QObject):
         self.is_playing = False
         self.is_paused = False
 
+    def _applyAudio(self, audio: PatchedAudioSegment) -> None:
+        self._applyPreparedBuffer(self.prepareBuffer(audio))
+
     def load(self, audio: PatchedAudioSegment) -> None:
         with self._lock:
             self._stopProducer()
@@ -622,6 +643,17 @@ class AudioPlayer(QObject):
                 self.stream = None
 
             self._applyAudio(audio)
+            self._resetGrowingFile()
+
+    def loadPrepared(self, prepared: PreparedAudioBuffer) -> None:
+        with self._lock:
+            self._stopProducer()
+            self.stop()
+            if self.stream:
+                self.stream.close()
+                self.stream = None
+
+            self._applyPreparedBuffer(prepared)
             self._resetGrowingFile()
 
     def loadFromFile(self, file_path: Path) -> None:
@@ -864,6 +896,84 @@ class AudioPlayer(QObject):
                 self.is_playing = True
                 self.is_paused = False
 
+    def playFromPosition(self, seconds: float) -> None:
+        with self._lock:
+            if len(self.samples) == 0:
+                return
+            self.stop(clear_growing_file=self._growing_file_path is None)
+            self._playback_time = max(0.0, seconds)
+            self.current_index = min(
+                int(self._playback_time * self.sample_rate), len(self.samples)
+            )
+            self._producer_index = self.current_index
+            self._prepared_start_index = self.current_index
+            self._prepared_end_index = self.current_index
+            self._producer_target_lead = self._producerDesiredLead()
+            self._clearQueue()
+            self._startProducer()
+
+        deadline = time.perf_counter() + 0.25
+        while self._audio_queue.empty() and time.perf_counter() < deadline:
+            time.sleep(0.001)
+
+        with self._lock:
+            if not self._producer_running or len(self.samples) == 0:
+                return
+            self._startStream()
+            self.is_playing = True
+            self.is_paused = False
+
+    def playFromLivePosition(self, position_provider: Callable[[], float]) -> None:
+        """Start playback aligned with another advancing player."""
+        with self._lock:
+            if len(self.samples) == 0:
+                return
+            self.stop(clear_growing_file=self._growing_file_path is None)
+            self._playback_time = max(0.0, position_provider())
+            self.current_index = min(
+                int(self._playback_time * self.sample_rate), len(self.samples)
+            )
+            self._producer_index = self.current_index
+            self._prepared_start_index = self.current_index
+            self._prepared_end_index = self.current_index
+            self._producer_target_lead = self._producerDesiredLead()
+            self._clearQueue()
+            started_at = time.perf_counter()
+            self._startProducer()
+
+        deadline = time.perf_counter() + 0.25
+        while self._audio_queue.empty() and time.perf_counter() < deadline:
+            time.sleep(0.001)
+        startup_seconds = time.perf_counter() - started_at
+
+        with self._lock:
+            if not self._producer_running or len(self.samples) == 0:
+                return
+            self._stopProducer()
+            self._playback_time = max(
+                0.0,
+                position_provider() + startup_seconds * self.play_speed,
+            )
+            self.current_index = min(
+                int(self._playback_time * self.sample_rate), len(self.samples)
+            )
+            self._producer_index = self.current_index
+            self._prepared_start_index = self.current_index
+            self._prepared_end_index = self.current_index
+            self._clearQueue()
+            self._startProducer()
+
+        deadline = time.perf_counter() + 0.25
+        while self._audio_queue.empty() and time.perf_counter() < deadline:
+            time.sleep(0.001)
+
+        with self._lock:
+            if not self._producer_running or len(self.samples) == 0:
+                return
+            self._startStream()
+            self.is_playing = True
+            self.is_paused = False
+
     def pause(self) -> None:
         with self._lock:
             self._stopProducer()
@@ -917,6 +1027,26 @@ class AudioPlayer(QObject):
 
     def getPosition(self) -> float:
         return round(self._playback_time, 2)
+
+    def getSmoothPosition(self) -> float:
+        """Return playback position interpolated within the current audio block."""
+        position = self._playback_time
+        if (
+            not self.is_playing
+            or abs(position - self._smooth_position_end) > 1e-6
+            or self._smooth_position_duration <= 0
+        ):
+            return position
+        progress = (time.perf_counter() - self._smooth_position_started_at) / (
+            self._smooth_position_duration
+        )
+        progress = max(0.0, min(1.0, progress))
+        return self._smooth_position_start + (
+            self._smooth_position_end - self._smooth_position_start
+        ) * progress
+
+    def _getExactPosition(self) -> float:
+        return self._playback_time
 
     def getLength(self) -> float:
         return len(self.samples) / self.sample_rate if self.sample_rate > 0 else 0.0
@@ -997,7 +1127,11 @@ class AudioPlayer(QObject):
     def _streamSampleRate(self) -> int:
         return int(self.sample_rate * self.play_speed)
 
-    def _startStream(self):
+    def prepareStream(self) -> None:
+        with self._lock:
+            self._ensureStream()
+
+    def _ensureStream(self) -> None:
         if self.stream is None:
             channels = self.output_channels
             try:
@@ -1020,7 +1154,11 @@ class AudioPlayer(QObject):
                     device=self._device_id,
                 )
             self.output_channels = channels
-        self.stream.start()
+
+    def _startStream(self) -> None:
+        self._ensureStream()
+        if self.stream is not None:
+            self.stream.start()
 
     def setGain(self, gain: float):
         with self._lock:
@@ -1111,23 +1249,28 @@ class AudioPlayer(QObject):
         self._speed_animating_flag = False
 
     def _fft_worker(self):
+        sample_history = np.zeros(0, dtype=np.float32)
         while self.fft_thread_running:
             chunk = self.fft_queue.get()
             if chunk is None:
                 break
 
-            if len(chunk) < self.fft_size:
-                padded = np.zeros(self.fft_size, dtype=np.float32)
-                padded[: len(chunk)] = chunk
-                chunk = padded
-            else:
-                chunk = chunk[: self.fft_size]
+            fft_size = max(1, int(self.fft_size))
+            sample_history = np.concatenate((sample_history, chunk))
+            if len(sample_history) > fft_size:
+                sample_history = sample_history[-fft_size:]
 
-            window = np.hanning(len(chunk))
-            windowed = chunk * window
+            if len(sample_history) < fft_size:
+                fft_input = np.zeros(fft_size, dtype=np.float32)
+                fft_input[-len(sample_history) :] = sample_history
+            else:
+                fft_input = sample_history
+
+            window = np.hanning(fft_size)
+            windowed = fft_input * window
             fft_result = rfft(windowed)
             fft_vals = np.abs(np.asarray(fft_result, dtype=np.complex128))
-            fft_freqs = rfftfreq(len(chunk), 1 / self.sample_rate)
+            fft_freqs = rfftfreq(fft_size, 1 / self.sample_rate)
 
             self.fftDataReady.emit(fft_freqs, fft_vals)
 
@@ -1209,17 +1352,20 @@ class AudioPlayer(QObject):
         if max_start < min_start:
             return max(0, min(ideal_start, n))
 
-        tail_mono = tail[:overlap].mean(axis=1).astype(np.float32, copy=False)
-        tail_mono = tail_mono - tail_mono.mean()
-        tail_power = float(np.sqrt(np.sum(tail_mono * tail_mono)))
+        tail_segment = tail[:overlap].astype(np.float32, copy=False)
+        tail_segment = tail_segment - tail_segment.mean(axis=0, keepdims=True)
+        channel_energy = np.sum(tail_segment * tail_segment, axis=0)
+        channel = int(np.argmax(channel_energy))
+        tail_channel = tail_segment[:, channel]
+        tail_power = float(np.sqrt(channel_energy[channel]))
         if tail_power < 1e-6:
             return max(0, min(ideal_start, n))
 
-        mono = self.samples[min_start : max_start + overlap].mean(axis=1)
-        windows = np.lib.stride_tricks.sliding_window_view(mono, overlap)
+        source = self.samples[min_start : max_start + overlap, channel]
+        windows = np.lib.stride_tricks.sliding_window_view(source, overlap)
         centered = windows - windows.mean(axis=1, keepdims=True)
         powers = np.sqrt(np.sum(centered * centered, axis=1))
-        scores = centered @ tail_mono
+        scores = centered @ tail_channel
         scores /= np.maximum(powers * tail_power, 1e-6)
         positions = np.arange(len(scores), dtype=np.float32) + min_start
         center_bias = np.abs(positions - ideal_start) / max(1, search)
@@ -1279,7 +1425,11 @@ class AudioPlayer(QObject):
         if len(segment) == 0:
             return False
 
-        fade_in = np.linspace(0.0, 1.0, hop, dtype=np.float32).reshape(-1, 1)
+        fade_in = (
+            0.5
+            - 0.5
+            * np.cos(np.linspace(0.0, np.pi, hop, dtype=np.float32))
+        ).reshape(-1, 1)
         mixed = self._wsola_tail * (1.0 - fade_in) + segment[:hop] * fade_in
         self._wsola_output_buffer = np.concatenate((output_buffer, mixed), axis=0)
         self._wsola_tail = segment[hop:frame_size].copy()
@@ -1441,8 +1591,13 @@ class AudioPlayer(QObject):
         )
         outdata[:copy_len, : self.output_channels] = played_chunk
 
+        smooth_position_start = self.current_index / self.sample_rate
         self.current_index = min(self.current_index + src_frames, len(self.samples))
         self._playback_time = self.current_index / self.sample_rate
+        self._smooth_position_start = smooth_position_start
+        self._smooth_position_end = self._playback_time
+        self._smooth_position_started_at = time.perf_counter()
+        self._smooth_position_duration = frames / max(1, self._streamSampleRate())
 
         growing_file_incomplete = (
             self._growing_file_path is not None and not self._growing_file_complete
@@ -1508,7 +1663,8 @@ class AudioPlayer(QObject):
 
     def _emitPlaybackTelemetry(self) -> None:
         self.positionChanged.emit(self._playback_time)
-        event_bus.emit(DB_CHANGED, self.db)
+        if self.is_playing:
+            event_bus.emit(DB_CHANGED, self, self.db)
 
         with self._callback_events_lock:
             full_finished = self._pending_full_finished

@@ -140,7 +140,7 @@ class DesktopLyricsViewer(LyricsViewer):
             self.height_timer.target_value = 0
         else:
             has_translation = self._hasCurrentLineTranslation(cur_line)
-            tar_height = 65 if has_translation and self.ctx.cfg.show_translation else 46
+            tar_height = 65 if has_translation and self.ctx.config.show_translation else 46
             if meta:
                 tar_height = self.font_height + 10
             self.height_timer.target_value = tar_height
@@ -204,10 +204,7 @@ class DesktopLyricsViewer(LyricsViewer):
             self.move(target_point)
 
         self.draw_x_offset = self.height() / 2
-        self._layout_payload = self.lyricLayoutPayload(
-            update_animation=True,
-            multiple_factor=multiple_factor,
-        )
+        self._updateViewLayout(multiple_factor)
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:

@@ -54,7 +54,6 @@ class DebugOverlay(QWidget):
         self.mmax_value: EaseOutTimer = EaseOutTimer(1, 2)
 
         self.cpu_datas: dict[str, deque[float]] = {}
-        self.cpu_smoothed: dict[str, deque[float]] = {}
         self.cpu_cores = os.cpu_count() or 1
         self.last_cpu_time: dict[int, float] = {}
         self.last_wall: dict[int, float] = {}
@@ -117,13 +116,11 @@ class DebugOverlay(QWidget):
         stale_names = (
             set(self.mem_datas)
             | set(self.cpu_datas)
-            | set(self.cpu_smoothed)
             | set(self.tracked_pids)
         ) - set(pids)
         for name in stale_names:
             self.mem_datas.pop(name, None)
             self.cpu_datas.pop(name, None)
-            self.cpu_smoothed.pop(name, None)
             for pid in self.tracked_pids.pop(name, set()):
                 self.last_cpu_time.pop(pid, None)
                 self.process_cache.pop(pid, None)
@@ -178,7 +175,6 @@ class DebugOverlay(QWidget):
         for name, pid in pids.items():
             if not self.cpu_datas.get(name):
                 self.cpu_datas[name] = deque(maxlen=200)
-                self.cpu_smoothed[name] = deque(maxlen=20)
             try:
                 processes = self._trackedProcesses(name, pid)
                 self._updateTrackedPids(name, processes)
@@ -195,10 +191,7 @@ class DebugOverlay(QWidget):
             now = time.perf_counter()
             elapsed = max(now - self.last_wall.get(pid, 0.0), 0.001)
             cpu_percent = cpu_delta / elapsed / self.cpu_cores * 100
-            self.cpu_smoothed[name].append(cpu_percent)
-            self.cpu_datas[name].append(
-                sum(self.cpu_smoothed[name]) / len(self.cpu_smoothed[name])
-            )
+            self.cpu_datas[name].append(cpu_percent)
             self.last_wall[pid] = now
 
         max_v = 0

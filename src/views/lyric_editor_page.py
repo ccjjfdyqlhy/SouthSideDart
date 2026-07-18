@@ -51,21 +51,12 @@ class ManualLyricsViewer(LyricsViewer):
         self.preview_position = max(0.0, position)
         self.updateDatas()
 
+    def _viewPosition(self) -> float:
+        return self.preview_position
+
     def updateDatas(self, multiple_factor: float = 1.0) -> None:
-        self._layout_payload = self.lyricLayoutPayload(
-            position=self.preview_position,
-            update_animation=True,
-            multiple_factor=multiple_factor,
-        )
+        self._updateViewLayout(multiple_factor)
         self.update()
-
-    def _updateShownLines(self) -> None:
-        self._layout_payload = self.lyricLayoutPayload(
-            position=self.preview_position,
-            update_animation=False,
-        )
-        self.update()
-
 
 @dataclass
 class LyricTokenTiming:

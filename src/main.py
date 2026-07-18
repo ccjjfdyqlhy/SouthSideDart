@@ -15,6 +15,20 @@ sys.path.append(os.path.join(_SRC_DIR, 'utils'))
 sys.path.append(os.path.join(_SRC_DIR, 'views'))
 sys.path.append(os.path.join(_SRC_DIR, 'services'))
 
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+from views.launch_window import LaunchWindow
+
+QApplication.setHighDpiScaleFactorRoundingPolicy(
+    Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+)
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_CompressHighFrequencyEvents)
+
+app = QApplication(sys.argv)
+launchwindow: LaunchWindow | None = LaunchWindow(app)
+launchwindow.subtitle('Loading libraries...')
+app.processEvents()
+
 from views.home_page import HomePage
 from views.library_page import LibraryPage
 
@@ -48,7 +62,6 @@ from core.playing_manager import PlayingManager
 from core import theme as themeModule
 from core.ws_server import ws_server, ws_handler
 from views.log_handler import LogHandler, hijackStreams
-from views.launch_window import LaunchWindow
 from views.search_page import SearchPage
 from views.playing_page import PlayingPage
 from views.desktop_lyrics import DesktopLyricsPage
@@ -63,35 +76,44 @@ logging.basicConfig(level=logging.DEBUG, handlers=[logging_handler])
 hijackStreams()
 
 _logger = logging.getLogger('main')
+_exit_cleanup_done = False
 
 
 def atExitListener():
+    global _exit_cleanup_done
+    if _exit_cleanup_done:
+        return
+    _exit_cleanup_done = True
     logging.info('exiting by listener')
 
-    playing_manager = ctx.playing_manager
+    context = globals().get('ctx')
+    if context is None:
+        ws_server.stop(shutdown_json_sender=True)
+        return
+
+    playing_manager = context.playing_manager
+    cfg.last_playing_time = context.player.getPosition()
+    context.player.shutdown()
     if playing_manager is not None:
         playing_manager.shutdownWorkers()
-    ctx.ws_server.stop(shutdown_json_sender=True)
+    context.ws_server.stop(shutdown_json_sender=True)
 
-    cfg.last_playlist = ctx.playing_manager.playlist.copy()
-    cfg.last_playing_index = ctx.playing_manager.current_index
-    cfg.last_playing_time = ctx.player.getPosition()
-    ctx.player.shutdown()
+    cfg.last_playlist = context.playing_manager.playlist.copy()
+    cfg.last_playing_index = context.playing_manager.current_index
 
-    cfg.window_x = ctx.main_window.x()
-    cfg.window_y = ctx.main_window.y()
-    cfg.window_width = ctx.main_window.width() - (
-        LLM_WINDOW_WIDTH_DELTA if ctx.main_window.llm_viewer_panel.expanded else 0
+    cfg.window_x = context.main_window.x()
+    cfg.window_y = context.main_window.y()
+    cfg.window_width = context.main_window.width() - (
+        LLM_WINDOW_WIDTH_DELTA
+        if context.main_window.llm_viewer_panel.expanded
+        else 0
     )
-    cfg.window_height = ctx.main_window.height()
-    cfg.window_maximized = ctx.main_window.isMaximized()
-    cfg.llm_viewer_expanded = ctx.main_window.llm_viewer_panel.expanded
+    cfg.window_height = context.main_window.height()
+    cfg.window_maximized = context.main_window.isMaximized()
+    cfg.llm_viewer_expanded = context.main_window.llm_viewer_panel.expanded
 
     saveConfig()
     saveFavorites()
-
-    ctx.app.quit()
-
 
 atexit.register(atExitListener)
 
@@ -204,17 +226,7 @@ def patched_call(*args, **kwargs):
 subprocess.Popen = patched_popen  # type: ignore
 subprocess.call = patched_call  # type: ignore
 
-_ims.QApplication.setHighDpiScaleFactorRoundingPolicy(
-    _ims.Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-)
-_ims.QApplication.setAttribute(
-    _ims.Qt.ApplicationAttribute.AA_CompressHighFrequencyEvents
-)
-
-app = _ims.QApplication(sys.argv)
-
 mwindow: MainWindow | None = None
-launchwindow: LaunchWindow | None = LaunchWindow(app)
 lock: threading.Lock = threading.Lock()
 
 _ims.event_bus._lw = launchwindow
@@ -567,7 +579,7 @@ if __name__ == '__main__':
     ctx = AppContext()
     ctx.app = app
     ctx.player = AudioPlayer()
-    ctx.cfg = Config.instance()
+    ctx.config = Config.instance()
     ctx.mgr = LRCLyricParser()
     ctx.transmgr = LRCLyricParser()
     ctx.ymgr = YRCLyricParser()
@@ -633,6 +645,7 @@ if __name__ == '__main__':
         launchwindow.subtitle('Initializing main window...')
         mwindow = MainWindow(ctx)
         ctx.main_window = mwindow
+        app.aboutToQuit.connect(atExitListener)
 
         mwindow.init()
 

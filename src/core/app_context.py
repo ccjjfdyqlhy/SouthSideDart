@@ -70,7 +70,7 @@ class AppContext:
     def __init__(self) -> None:
         self.app: QApplication = cast('QApplication', None)
         self.player: AudioPlayer = cast('AudioPlayer', None)
-        self.cfg: Config = cast('Config', None)
+        self.config: Config = cast('Config', None)
         self.mgr: LRCLyricParser = cast('LRCLyricParser', None)
         self.transmgr: LRCLyricParser = cast('LRCLyricParser', None)
         self.ymgr: YRCLyricParser = cast('YRCLyricParser', None)

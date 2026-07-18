@@ -349,6 +349,7 @@ class FreeThreadedJsonSender:
         self._logger = logger or logging.getLogger(__name__)
         self._max_workers = max_workers or max(2, os.cpu_count() or 2)
         self._lock = threading.Lock()
+        self._write_lock = threading.Lock()
         self._callbacks: dict[int, Callable[[Any | None], None]] = {}
         self._next_id = 0
         self._process: subprocess.Popen | None = None
@@ -414,7 +415,8 @@ class FreeThreadedJsonSender:
             self._next_id += 1
             request_id = self._next_id
             self._callbacks[request_id] = callback
-            try:
+        try:
+            with self._write_lock:
                 _writeFrame(
                     process.stdin,
                     {
@@ -423,11 +425,11 @@ class FreeThreadedJsonSender:
                         'payload': payload,
                     },
                 )
-            except Exception as e:
+        except Exception as e:
+            with self._lock:
                 self._callbacks.pop(request_id, None)
-                self._logger.warning('free-threaded worker submit failed: %s', e)
-                self._stopProcessLocked()
-                return None
+            self._logger.warning('free-threaded worker submit failed: %s', e)
+            return None
 
         return request_id
 
@@ -435,13 +437,7 @@ class FreeThreadedJsonSender:
         reader_thread: threading.Thread | None
         with self._lock:
             self._shutdown = True
-            process = self._process
-            if process is not None and process.stdin is not None:
-                try:
-                    _writeFrame(process.stdin, {'op': 'shutdown'})
-                except Exception:
-                    pass
-            reader_thread = self._stopProcessLocked(terminate_first=False)
+            reader_thread = self._stopProcessLocked()
         self._joinReaderThread(reader_thread)
 
     def is_running(self) -> bool:
@@ -625,6 +621,24 @@ class FreeThreadedJsonSender:
                 process.wait(timeout=1.0)
             except subprocess.TimeoutExpired:
                 pass
+            except Exception:
+                pass
+
+        if process.poll() is None:
+            if os.name == 'nt':
+                creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                try:
+                    killer = _ORIGINAL_POPEN(
+                        ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=creationflags,
+                    )
+                    killer.wait(timeout=2.0)
+                except Exception:
+                    pass
+            try:
+                process.wait(timeout=0.5)
             except Exception:
                 pass
 

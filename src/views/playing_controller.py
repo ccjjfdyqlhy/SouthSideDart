@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import logging
 import math
 import numpy as np
@@ -32,6 +33,7 @@ from imports import (
     QImage,
     QPixmap,
     QPointF,
+    QRectF,
     QSizePolicy,
     QSpacerItem,
     Qt,
@@ -83,7 +85,7 @@ class PlayingControllerLyricsViewer(QWidget):
         self._ymgr = ctx.ymgr
         self._player = ctx.player
         self._mwindow = ctx.main_window
-        self._cfg = ctx.cfg
+        self._cfg = ctx.config
         self._dp = ctx.playing_page
 
         self.ft = QFont(ctx.harmony_font_family, 9)
@@ -94,7 +96,8 @@ class PlayingControllerLyricsViewer(QWidget):
 
         self._lyrics_ready = True
         self._prewarm_version = 0
-        self._draw_payload: dict[str, object] = {'ready': False}
+        self._current_line: LyricInfo | YRCLyricInfo | None = None
+        self._draw_position = 0.0
 
         self.refresh_rate = max(60, ctx.app.primaryScreen().refreshRate() / 2)
         self._logger.info(f'{self.refresh_rate=}')
@@ -130,7 +133,7 @@ class PlayingControllerLyricsViewer(QWidget):
         self.update()
 
     def _onRepaintTick(self, _multiple_factor: float = 1.0) -> None:
-        position = self.ctx.playing_manager.getDisplayPosition()
+        position = self.ctx.playing_manager.getDisplaySmoothPosition()
         if self._ymgr.hasYrcTiming():
             current = self._ymgr.getCurrentLyric(position)
         elif self._mgr.parsed:
@@ -145,77 +148,22 @@ class PlayingControllerLyricsViewer(QWidget):
                 target = int(math.ceil(self.metri.horizontalAdvance(text))) + 20
 
         self.setFixedWidth(max(1, int(target)))
-        self._draw_payload = self._buildDrawPayload(position, current)
+        self._current_line = current
+        self._draw_position = position
         self.update()
 
-    def _buildDrawPayload(
-        self,
-        position: float,
-        current_line: LyricInfo | YRCLyricInfo | None,
-    ) -> dict[str, object]:
-        if current_line is None:
-            return {'ready': False}
-
-        y = self._currentLineBaseline()
-        if current_line.isMetadata:
+    def _lineColor(self, line: LyricInfo | YRCLyricInfo) -> QColor:
+        if line.isMetadata:
             tar_color = QColor(255, 255, 255)
         else:
             tar_color = QColor(255, 255, 255) if theme.isDark() else QColor(0, 0, 0)
 
-        color = (
+        return (
             mixColor(
                 self._mwindow.song_theme, tar_color, self._cfg.background_ratio / 2
             )
             if self._mwindow and self._mwindow.song_theme
             else tar_color
-        )
-        color_payload = {
-            'r': color.red(),
-            'g': color.green(),
-            'b': color.blue(),
-            'a': color.alpha(),
-        }
-        content = current_line.content.strip()
-        payload: dict[str, object] = {
-            'ready': True,
-            'is_yrc': False,
-            'text': content,
-            'baseline_y': y,
-            'color': color_payload,
-            'clips': [],
-        }
-        if self._ymgr.hasYrcTiming() and isinstance(current_line, YRCLyricInfo):
-            y_line = current_line
-            content = (y_line.content or current_line.content).strip()
-            clips: list[dict[str, float]] = []
-            x = 0.0
-            for ch in y_line.chars:
-                text_width = self.metri.horizontalAdvance(ch.char)
-                duration = ch.duration
-                if duration <= 0:
-                    progress = 1.0 if position >= ch.start else 0.0
-                else:
-                    progress = (position - ch.start) / duration
-                progress = max(0.0, min(1.0, progress))
-                clips.append({'x': x, 'width': text_width * progress})
-                x += text_width
-            payload.update(
-                {
-                    'is_yrc': not current_line.isMetadata,
-                    'text': content,
-                    'clips': clips,
-                }
-            )
-        return payload
-
-    def _colorFromPayload(self, value: object) -> QColor:
-        if not isinstance(value, dict):
-            return QColor(0, 0, 0, 0)
-        return QColor(
-            int(value.get('r', 0)),
-            int(value.get('g', 0)),
-            int(value.get('b', 0)),
-            int(value.get('a', 0)),
         )
 
     def _onRefreshRateChanged(self):
@@ -227,8 +175,8 @@ class PlayingControllerLyricsViewer(QWidget):
         return (self.height() - self.font_height) * 0.5 + self.metri.ascent()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        payload = self._draw_payload
-        if not payload.get('ready') or not self._lyrics_ready:
+        current_line = self._current_line
+        if current_line is None or not self._lyrics_ready:
             return
         if not self.isVisible():
             return
@@ -239,11 +187,11 @@ class PlayingControllerLyricsViewer(QWidget):
         )
         painter.setFont(self.ft)
 
-        y = float(payload.get('baseline_y', 0.0))  # type: ignore
-        content = str(payload.get('text', ''))
-        color = self._colorFromPayload(payload.get('color', {}))
+        y = self._currentLineBaseline()
+        content = current_line.content.strip()
+        color = self._lineColor(current_line)
 
-        if bool(payload.get('is_yrc', False)):
+        if isinstance(current_line, YRCLyricInfo) and not current_line.isMetadata:
             base_color = QColor(color)
             base_color.setAlpha(120)
             painter.setPen(base_color)
@@ -251,22 +199,22 @@ class PlayingControllerLyricsViewer(QWidget):
 
             clip_y = toQtInt(y - self.metri.ascent())
             clip_h = toQtInt(self.font_height)
-            for clip in payload.get('clips', []):  # type: ignore
-                if not isinstance(clip, dict):
-                    continue
-                x = float(clip.get('x', 0.0))
-                clip_w = float(clip.get('width', 0.0))
+            x = 0.0
+            for ch in current_line.chars:
+                text_width = self.metri.horizontalAdvance(ch.char)
+                if ch.duration <= 0:
+                    progress = 1.0 if self._draw_position >= ch.start else 0.0
+                else:
+                    progress = (self._draw_position - ch.start) / ch.duration
+                progress = max(0.0, min(1.0, progress))
+                clip_w = text_width * progress
                 if clip_w > 0:
                     painter.save()
-                    painter.setClipRect(
-                        toQtInt(x),
-                        clip_y,
-                        toQtInt(math.ceil(clip_w)),
-                        clip_h,
-                    )
+                    painter.setClipRect(QRectF(x, clip_y, clip_w, clip_h))
                     painter.setPen(color)
                     painter.drawText(0, toQtInt(y), content)
                     painter.restore()
+                x += text_width
         else:
             painter.setPen(color)
             painter.drawText(0, toQtInt(y), content)
@@ -301,7 +249,8 @@ class PlayingController(QWidget):
 
         self.dragging = False
 
-        self.dev_mag: float = 1
+        self.norm_timer: EaseOutTimer = EaseOutTimer(0.5, 2)
+        self.norm_buffer: deque[float] = deque()
 
         self.draw_ratio_timer = EaseOutTimer(0.25, 4)
         self.prepared_ratio_timer = EaseOutTimer(0.35, 4)
@@ -311,15 +260,17 @@ class PlayingController(QWidget):
         self.last_draw: int = time.perf_counter_ns()
         self.refresh_rate = max(60, self._app.primaryScreen().refreshRate() / 2)
         self.delta = 1 / self.refresh_rate
+        self.setFFTBufferSeconds(self.ctx.config.fft_buffer_seconds)
 
         global_layout = QHBoxLayout()
         global_layout.setContentsMargins(0, 0, 0, 0)
 
         self.cur_freqs: np.ndarray | None = None
         self.cur_magnitudes: np.ndarray | None = None
-        self.final_magnitudes: np.ndarray = np.zeros(513, dtype=np.float32)
-        self.smoothed_magnitudes: np.ndarray = np.zeros(513, dtype=np.float32)
-        self.draw_magnitudes: np.ndarray = np.zeros(513, dtype=np.float32)
+        self.final_magnitudes: np.ndarray = np.zeros(2049, dtype=np.float32)
+        self.smoothed_magnitudes: np.ndarray = np.zeros(2049, dtype=np.float32)
+        self.draw_magnitudes: np.ndarray = np.zeros(2049, dtype=np.float32)
+        self.fft_display_magnitudes: np.ndarray = np.zeros(768, dtype=np.float32)
         self.last_lyric: LyricInfo | YRCLyricInfo | None = None
         self._last_ws_lyric_send = 0.0
         self._last_ws_fft_send = 0.0
@@ -417,6 +368,11 @@ class PlayingController(QWidget):
     def _onRefreshRateChanged(self):
         self.refresh_rate = max(60, self._app.primaryScreen().refreshRate() / 2)
         self.delta = 1 / self.refresh_rate
+        self.setFFTBufferSeconds(self.ctx.config.fft_buffer_seconds)
+
+    def setFFTBufferSeconds(self, seconds: float) -> None:
+        maxlen = max(1, int(self.refresh_rate * seconds))
+        self.norm_buffer = deque(self.norm_buffer, maxlen=maxlen)
 
     def onTogglePlaylist(self):
         if self._mwindow and not self._mwindow.pl_animating:
@@ -463,8 +419,38 @@ class PlayingController(QWidget):
         self.update()
 
     def updateFFTData(self, freqs: np.ndarray, magnitudes: np.ndarray) -> None:
+        if len(magnitudes) != len(self.smoothed_magnitudes):
+            self.final_magnitudes = np.zeros_like(magnitudes, dtype=np.float32)
+            self.smoothed_magnitudes = np.zeros_like(magnitudes, dtype=np.float32)
+            self.draw_magnitudes = np.zeros_like(magnitudes, dtype=np.float32)
         self.cur_freqs = freqs
         self.cur_magnitudes = magnitudes
+
+    def _displayFFTMagnitudes(self) -> np.ndarray:
+        if self.cur_freqs is None or len(self.cur_freqs) < 2:
+            return np.zeros(0, dtype=np.float32)
+        size = min(len(self.cur_freqs), len(self.draw_magnitudes))
+        if size < 2:
+            return np.zeros(0, dtype=np.float32)
+
+        freqs = self.cur_freqs[:size]
+        magnitudes = self.draw_magnitudes[:size]
+        min_frequency = max(float(cfg.fft_min_frequency_hz), float(freqs[1]))
+        max_frequency = min(float(cfg.fft_max_frequency_hz), float(freqs[-1]))
+        if max_frequency <= min_frequency:
+            return np.zeros(0, dtype=np.float32)
+
+        mel_min = np.log1p(min_frequency / 700)
+        mel_max = np.log1p(max_frequency / 700)
+        centers = 700 * np.expm1(np.linspace(mel_min, mel_max, 768))
+        display = np.interp(centers, freqs, magnitudes).astype(
+            np.float32,
+            copy=False,
+        )
+        peak = float(np.max(display))
+        if peak > 0:
+            display = peak * np.power(display / peak, 1.6)
+        return display.astype(np.float32, copy=False)
 
     def _updateFFT(self, multiple_factor: float = 1.0) -> None:
         from views.song_card import DummyCard
@@ -476,7 +462,10 @@ class PlayingController(QWidget):
         )
         if self._stp.enableFFT_box.isChecked() and self.cur_magnitudes is not None:
             if not self._player.isPlaying():
-                self.cur_magnitudes = np.zeros(513, dtype=np.float32)
+                self.cur_magnitudes = np.zeros_like(
+                    self.cur_magnitudes,
+                    dtype=np.float32,
+                )
             window_size = int(cfg.fft_filtering_windowsize)
 
             self.smoothed_magnitudes += (
@@ -485,24 +474,32 @@ class PlayingController(QWidget):
             self.final_magnitudes = np.convolve(
                 self.smoothed_magnitudes,
                 np.ones(window_size) / window_size,
-                mode='same',
+                mode='same'
             )
             if isinstance(self._dp.cur, DummyCard):
                 self.final_magnitudes *= (
                     2 / self._dp.cur.storable.loudness_gain
                 ) * 0.75
 
-            maxmag = max(np.max(self.final_magnitudes), 10)
-            self.dev_mag += (maxmag - self.dev_mag) * 0.35
-            self.final_magnitudes /= self.dev_mag
+            self.norm_buffer.append(max(np.max(self.final_magnitudes), 10))
+            self.norm_timer.target_value = max(self.norm_buffer)
+            self.final_magnitudes /= self.norm_timer.current_value
             self.final_magnitudes *= self.height() - 10
+
+            self.draw_magnitudes = np.maximum(
+                self.final_magnitudes, self.draw_magnitudes
+            )
+            self.draw_magnitudes += -self.draw_magnitudes * 0.05 * multiple_factor
+            self.draw_magnitudes = np.maximum(self.draw_magnitudes, 0)
+            self.fft_display_magnitudes = self._displayFFTMagnitudes()
 
             if self._ws_handler.is_open:
                 now = time.perf_counter()
                 if now - self._last_ws_fft_send >= _WS_FFT_INTERVAL:
                     self._last_ws_fft_send = now
                     magnitudes = np.ascontiguousarray(
-                        self.draw_magnitudes, dtype=np.float32
+                        self.fft_display_magnitudes,
+                        dtype=np.float32,
                     )
                     multiple = float(cfg.sfft_multiple)
                     self._ws_handler.sendJsonFactory(
@@ -517,12 +514,6 @@ class PlayingController(QWidget):
                         },
                         coalesce_key='update_fft',
                     )
-
-            self.draw_magnitudes = np.maximum(
-                self.final_magnitudes, self.draw_magnitudes
-            )
-            self.draw_magnitudes += -self.draw_magnitudes * 0.05 * multiple_factor
-            self.draw_magnitudes = np.maximum(self.draw_magnitudes, 0)
 
         progress_left = self._progressLeft()
         progress_width = self.width() - progress_left
@@ -653,7 +644,7 @@ class PlayingController(QWidget):
             now = time.perf_counter()
             if now - self._last_ws_lyric_send >= _WS_LYRIC_INTERVAL:
                 self._last_ws_lyric_send = now
-                layout = dict(self._dp.viewer._layout_payload)
+                layout = self._dp.viewer.lyricLayoutPayload()
                 translation_enabled = bool(cfg.show_translation)
                 self._ws_handler.sendJsonFactory(
                     lambda position=position, current_index=current_index, use_yrc=use_yrc, lines=lines, layout=layout, translation_enabled=translation_enabled: {
@@ -763,20 +754,15 @@ class PlayingController(QWidget):
         isDark = theme.isDark()
 
         if self._draw_fft and self.cur_magnitudes is not None:
-            path = QPainterPath(QPointF(0, 0))
-            total = int(self.cur_magnitudes.size * 0.67)
-            for i in range(total):
-                x = (52 if self.cover_label.isVisible() else 0) + ((i + 1) / total) * (
-                    self.width() - (52 if self.cover_label.isVisible() else 0)
-                )
+            fft_left = 52 if self.cover_label.isVisible() else 0
+            path = QPainterPath(QPointF(fft_left, 0))
+            total = len(self.fft_display_magnitudes)
+            for i, magnitude in enumerate(self.fft_display_magnitudes):
+                x = fft_left + ((i + 1) / total) * (self.width() - fft_left)
                 path.lineTo(
                     QPointF(
                         x,
-                        (
-                            (self.draw_magnitudes[i] * ((1 + (i * 0.01)) - 0.1))
-                            * cfg.cfft_multiple
-                        )
-                        + 3.5,
+                        (magnitude * cfg.cfft_multiple) + 3.5,
                     )
                 )
             path.lineTo(QPointF(self.width(), 0))
