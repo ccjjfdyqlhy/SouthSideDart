@@ -171,7 +171,7 @@ def _adaptive_crossfade_seconds(
     strength: float,
 ) -> float:
     max_seconds = min(
-        12.0,
+        24.0,
         len(current_samples) / sample_rate,
         len(next_samples) / sample_rate,
     )

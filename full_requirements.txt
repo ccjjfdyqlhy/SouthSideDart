@@ -25,3 +25,4 @@ tqdm==4.67.3
 psutil==7.2.2
 anthropic==0.112.0
 clipboard==0.0.4
+markdown-it-py==4.2.0

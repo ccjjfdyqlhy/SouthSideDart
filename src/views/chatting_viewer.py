@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+import logging
+import re
+from html import escape
 
 from typing import override
 
@@ -16,6 +19,33 @@ from imports import (
     QWidget,
 )
 from qfluentwidgets import TextBrowser
+from markdown_it import MarkdownIt
+
+
+_MATH_PATTERN = re.compile(r'(?s)(\$\$.*?\$\$|(?<!\\)\$[^$\n]+(?<!\\)\$)')
+_MARKDOWN = MarkdownIt('commonmark', {'html': False, 'breaks': True}).enable(
+    ['table', 'strikethrough']
+)
+logging.getLogger('markdown_it').setLevel(logging.WARNING)
+
+
+def renderMarkdown(markdown: str) -> str:
+    """Render chat Markdown with tables, fenced code, links, and readable math."""
+    parts: list[str] = []
+    offset = 0
+    for match in _MATH_PATTERN.finditer(markdown):
+        parts.append(_MARKDOWN.render(markdown[offset : match.start()]))
+        formula = match.group(0).strip('$').strip()
+        parts.append(
+            '<div class="math-block">'
+            if match.group(0).startswith('$$')
+            else '<span class="math-inline">'
+        )
+        parts.append(escape(formula))
+        parts.append('</div>' if match.group(0).startswith('$$') else '</span>')
+        offset = match.end()
+    parts.append(_MARKDOWN.render(markdown[offset:]))
+    return ''.join(parts)
 
 
 class ChattingViewer(QWidget):
@@ -70,7 +100,7 @@ class ChattingViewer(QWidget):
         self._stream_finished = False
         self._append_buffer += chunk_content
         if not self._append_timer.isActive():
-            self._append_timer.start(0)
+            self._append_timer.start(80)
 
     def finishStream(self) -> None:
         self._stream_finished = True
@@ -82,13 +112,10 @@ class ChattingViewer(QWidget):
 
     def _drainAppendBuffer(self) -> None:
         if self._append_buffer:
-            take = max(1, (len(self._append_buffer) + 7) // 8)
-            self._consumeAppendBuffer(take)
+            self._consumeAppendBuffer(len(self._append_buffer))
             self._renderMarkdown()
 
-        if self._append_buffer:
-            self._append_timer.start(16)
-        elif self._stream_finished:
+        if self._stream_finished:
             self._stream_finished = False
             self.finished.emit()
 
@@ -101,7 +128,16 @@ class ChattingViewer(QWidget):
         self.charReceived.emit(len(chunk))
 
     def _renderMarkdown(self) -> None:
-        self.browser.setMarkdown(self._markdown)
+        self.browser.setHtml(
+            '<style>'
+            'body{color:inherit;}'
+            'pre{white-space:pre-wrap; word-wrap:break-word; background:rgba(128,128,128,.16); padding:8px; border-radius:4px;}'
+            'code{font-family:monospace;}'
+            'table{border-collapse:collapse;} th,td{border:1px solid #666; padding:4px 8px;}'
+            '.math-inline,.math-block{font-family:serif; color:inherit;}'
+            '.math-block{margin:8px 0; text-align:center;}'
+            '</style>' + renderMarkdown(self._markdown)
+        )
         text_option = self.browser.document().defaultTextOption()
         text_option.setWrapMode(QTextOption.WrapMode.WrapAnywhere)
         self.browser.document().setDefaultTextOption(text_option)

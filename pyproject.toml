@@ -28,4 +28,5 @@ dependencies = [
     "pywin32>=311",
     "anthropic>=0.112.0",
     "clipboard>=0.0.4",
+    "markdown-it-py>=3.0.0",
 ]
