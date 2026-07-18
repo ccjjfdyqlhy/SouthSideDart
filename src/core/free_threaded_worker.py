@@ -511,6 +511,11 @@ class FreeThreadedJsonSender:
 
         env = os.environ.copy()
         env['PYTHON_GIL'] = '0'
+        src_dir = str(Path(__file__).resolve().parents[1])
+        python_path = env.get('PYTHONPATH', '')
+        env['PYTHONPATH'] = (
+            src_dir if not python_path else os.pathsep.join((src_dir, python_path))
+        )
         try:
             process = _ORIGINAL_POPEN(
                 [
