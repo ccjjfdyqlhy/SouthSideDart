@@ -443,7 +443,7 @@ def getCrossfade(
     next_head = next[:window_ms]
     current_samples = _segment_to_samples(current_tail, sample_rate, channels)  # type: ignore
     current_analysis_samples = _segment_to_samples(
-        current_analysis,
+        current_analysis, # type: ignore
         sample_rate,
         channels,  # type: ignore
     )
