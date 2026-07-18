@@ -46,9 +46,9 @@ from base64 import b85decode
 
 
 def include_setuptools(args):
-    '''
+    """
     Install setuptools only if absent, not excluded and when using Python <3.12.
-    '''
+    """
     cli = not args.no_setuptools
     env = not os.environ.get('PIP_NO_SETUPTOOLS')
     absent = not importlib.util.find_spec('setuptools')
@@ -57,9 +57,9 @@ def include_setuptools(args):
 
 
 def include_wheel(args):
-    '''
+    """
     Install wheel only if absent, not excluded and when using Python <3.12.
-    '''
+    """
     cli = not args.no_wheel
     env = not os.environ.get('PIP_NO_WHEEL')
     absent = not importlib.util.find_spec('wheel')
@@ -85,14 +85,14 @@ def determine_pip_install_arguments():
 
 
 def monkeypatch_for_cert(tmpdir):
-    '''Patches `pip install` to provide default certificate with the lowest priority.
+    """Patches `pip install` to provide default certificate with the lowest priority.
 
     This ensures that the bundled certificates are used unless the user specifies a
     custom cert via any of pip's option passing mechanisms (config, env-var, CLI).
 
     A monkeypatch is the easiest way to achieve this, without messing too much with
     the rest of pip's internals.
-    '''
+    """
     from pip._internal.commands.install import InstallCommand
 
     # We want to be using the internal certificates.
@@ -144,7 +144,7 @@ def main():
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-DATA = b'''
+DATA = b"""
 P)h>@6aWAK2modQMO=`r3jO*3003hF000jF003}la4%n9X>MtBUtcb8c|DLpOT<77h41q#LNB_YQx$P
 _LBWgQMLc*D8D`sbcc9G-N$OJY$D3Aa7|8JQcznE$^8g`qqmGOrKpIMBg-Db&YRV+eh476m_P6^ZR5y
 42%3oK`xfVMZVxsfN2iZZNL_bCO3x41&6PkHm8@POeM7nceQ&rW+F$vg<G|R{odw70-g-rbf14dHlGQ
@@ -27502,7 +27502,7 @@ QMX<{=kb#!TLFLQHjbaG*Cb8v5RbS`jtP)h*<6ay3h000O8W&uT9{T7%r<_iD-xF-MrBLDyZ0000000
 KbMp0N6JG03QGV00000000000HlFZy%_*-X>c!Jc4cm4Z*nhna%^mAVlyvwbZKlab#iPjaCuNm0Rj{Q
 6aWAK2modQMO;?YR@J`;000{m001BW0000000000005+crqCGxaA|NaUv_0~WN&gWb#iQMX<{=kb#!T
 LFLz;SbS`jtP)h{{00000y#c)e>4*RTqu3b$000
-'''
+"""
 
 
 if __name__ == '__main__':

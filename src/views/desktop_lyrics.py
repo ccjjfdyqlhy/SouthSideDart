@@ -140,7 +140,9 @@ class DesktopLyricsViewer(LyricsViewer):
             self.height_timer.target_value = 0
         else:
             has_translation = self._hasCurrentLineTranslation(cur_line)
-            tar_height = 65 if has_translation and self.ctx.config.show_translation else 46
+            tar_height = (
+                65 if has_translation and self.ctx.config.show_translation else 46
+            )
             if meta:
                 tar_height = self.font_height + 10
             self.height_timer.target_value = tar_height
@@ -348,13 +350,17 @@ class DesktopLyricsPage(QWidget):
     ) -> None:
         super().__init__()
         if ctx.launch_window:
-            ctx.launch_window.subtitle(tr('desktop_lyrics.initializing_desktop_lyrics_page'))
+            ctx.launch_window.subtitle(
+                tr('desktop_lyrics.initializing_desktop_lyrics_page')
+            )
         self.ctx = ctx
         self._app = ctx.app
         self.setObjectName('desktop_lyrics_page')
 
         if ctx.launch_window:
-            ctx.launch_window.subtitle(tr('desktop_lyrics.creating_desktop_lyrics_viewer'))
+            ctx.launch_window.subtitle(
+                tr('desktop_lyrics.creating_desktop_lyrics_viewer')
+            )
         self.viewer = DesktopLyricsViewer(ctx)
         self.viewer.setVisible(cfg.enable_desktop_lyrics)
 

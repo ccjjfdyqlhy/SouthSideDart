@@ -1035,7 +1035,7 @@ TRANSLATIONS: dict[str, list[str]] = {
     'setting_page.fft_size': ['FFT Sampling Size', 'FFT 采样大小'],
     'setting_page.fft_size_desc': [
         'larger value makes more data points on',
-        '更大的值代表更密集的数据点'
+        '更大的值代表更密集的数据点',
     ],
     'song_card.add_to': ['Add to ...', '添加到...'],
     'song_card.add_to_folder': ['Add to Folder', '添加到文件夹'],

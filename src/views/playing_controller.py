@@ -474,22 +474,31 @@ class PlayingController(QWidget):
             self.final_magnitudes = np.convolve(
                 self.smoothed_magnitudes,
                 np.ones(window_size) / window_size,
-                mode='same'
+                mode='same',
             )
+            n = len(self.final_magnitudes)
+            offset = int(n * 0.015)
+            factor = np.arange(n, dtype=self.final_magnitudes.dtype)
+            factor -= offset
+            np.abs(factor, out=factor)
+            factor += 1.0
+            factor *= 1.05
+            self.final_magnitudes *= factor
             if isinstance(self._dp.cur, DummyCard):
                 self.final_magnitudes *= (
                     2 / self._dp.cur.storable.loudness_gain
                 ) * 0.75
 
-            self.norm_buffer.append(max(np.max(self.final_magnitudes), 10))
-            self.norm_timer.target_value = max(self.norm_buffer)
-            self.final_magnitudes /= self.norm_timer.current_value
-            self.final_magnitudes *= self.height() - 10
+            if self.ctx.player.isPlaying():
+                self.norm_buffer.append(max(np.max(self.final_magnitudes), 1))
+                self.norm_timer.target_value = max(self.norm_buffer)
+                self.final_magnitudes /= self.norm_timer.current_value
+                self.final_magnitudes *= self.height() - 10
 
             self.draw_magnitudes = np.maximum(
                 self.final_magnitudes, self.draw_magnitudes
             )
-            self.draw_magnitudes += -self.draw_magnitudes * 0.05 * multiple_factor
+            self.draw_magnitudes += -self.draw_magnitudes * 0.07 * multiple_factor
             self.draw_magnitudes = np.maximum(self.draw_magnitudes, 0)
             self.fft_display_magnitudes = self._displayFFTMagnitudes()
 
@@ -547,8 +556,10 @@ class PlayingController(QWidget):
             self._overlay_alpha = int(self.overlay_alpha_timer.current_value)
             length = self.ctx.playing_manager.getDisplayLength()
             if length > 0:
-                self._prepared_lead_width = int( progress_width * 
-                    self.ctx.playing_manager.getDisplayPreparedLead() / length
+                self._prepared_lead_width = int(
+                    progress_width
+                    * self.ctx.playing_manager.getDisplayPreparedLead()
+                    / length
                 )
             self._sendDrawPosition(draw_ratio)
 
@@ -818,9 +829,7 @@ class PlayingController(QWidget):
             )
             painter.setPen(
                 QPen(
-                    QColor(255, 255, 255, 80)
-                    if isDark
-                    else QColor(0, 0, 0, 80),
+                    QColor(255, 255, 255, 80) if isDark else QColor(0, 0, 0, 80),
                     8,
                 )
             )

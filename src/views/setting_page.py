@@ -292,9 +292,7 @@ class SettingPage(QWidget):
         self._refreshPlayMethodBox()
         self._refreshConnectionStatus()
         if hasattr(self, 'target_lufs_label'):
-            self.target_lufs_label.setText(
-                tr('setting_page.target_lufs_value')
-            )
+            self.target_lufs_label.setText(tr('setting_page.target_lufs_value'))
 
     def _initOptions(self) -> None:
         lw = self._launchwindow
@@ -624,10 +622,10 @@ class SettingPage(QWidget):
             0.1,
             'fft_buffer_seconds',
             advanced=True,
-            onChanged=lambda seconds: self.ctx.main_window.controller.setFFTBufferSeconds(
-                seconds
+            onChanged=lambda seconds: (
+                self.ctx.main_window.controller.setFFTBufferSeconds(seconds)
             ),
-            easy=False
+            easy=False,
         )
         self.addNumberSetting(
             'setting_page.fft_size',
@@ -638,7 +636,7 @@ class SettingPage(QWidget):
             'fft_size',
             onChanged=lambda size: self.fftSizeChanged(size),
             advanced=True,
-            easy=False
+            easy=False,
         )
         self.addNumberSetting(
             'setting_page.southside_music_side_fft_multiple_factor',

@@ -104,9 +104,7 @@ def atExitListener():
     cfg.window_x = context.main_window.x()
     cfg.window_y = context.main_window.y()
     cfg.window_width = context.main_window.width() - (
-        LLM_WINDOW_WIDTH_DELTA
-        if context.main_window.llm_viewer_panel.expanded
-        else 0
+        LLM_WINDOW_WIDTH_DELTA if context.main_window.llm_viewer_panel.expanded else 0
     )
     cfg.window_height = context.main_window.height()
     cfg.window_maximized = context.main_window.isMaximized()
@@ -114,6 +112,7 @@ def atExitListener():
 
     saveConfig()
     saveFavorites()
+
 
 atexit.register(atExitListener)
 

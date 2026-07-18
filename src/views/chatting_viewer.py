@@ -36,9 +36,7 @@ class ChattingViewer(QWidget):
         self.browser.setReadOnly(True)
         self.browser.setOpenExternalLinks(True)
         self.browser.setLineWrapMode(TextBrowser.LineWrapMode.WidgetWidth)
-        self.browser.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self.browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.browser.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.browser.setSizePolicy(
             QSizePolicy.Policy.Expanding,

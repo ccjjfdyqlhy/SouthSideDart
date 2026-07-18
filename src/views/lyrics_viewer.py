@@ -172,9 +172,7 @@ class LyricsViewer(QWidget):
         y_offsets, total_height = self._lineOffsets(lines, use_yrc)
         if not self.selecting:
             self.target_draw_offset = (
-                -y_offsets[current_index]
-                if 0 <= current_index < len(y_offsets)
-                else 0
+                -y_offsets[current_index] if 0 <= current_index < len(y_offsets) else 0
             )
         elif time.time() - self.last_wheel > 3:
             self.selecting = False
@@ -214,7 +212,9 @@ class LyricsViewer(QWidget):
         self.delta = 1 / self.refresh_rate
 
     def _hasTranslation(self) -> bool:
-        return bool(self._transmgr.parsed) if self.ctx.config.show_translation else False
+        return (
+            bool(self._transmgr.parsed) if self.ctx.config.show_translation else False
+        )
 
     def _timeKey(self, value: float) -> int:
         return round(value * 1000)
@@ -750,9 +750,7 @@ class LyricsViewer(QWidget):
 
             translation_text = (
                 self._translationTextForLine(line, use_yrc)
-                if self._shouldDrawTranslationForLine(
-                    line, use_yrc, is_current_line
-                )
+                if self._shouldDrawTranslationForLine(line, use_yrc, is_current_line)
                 else ''
             )
             translation_color = self._translationColor(alpha)

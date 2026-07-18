@@ -1041,9 +1041,10 @@ class AudioPlayer(QObject):
             self._smooth_position_duration
         )
         progress = max(0.0, min(1.0, progress))
-        return self._smooth_position_start + (
-            self._smooth_position_end - self._smooth_position_start
-        ) * progress
+        return (
+            self._smooth_position_start
+            + (self._smooth_position_end - self._smooth_position_start) * progress
+        )
 
     def _getExactPosition(self) -> float:
         return self._playback_time
@@ -1426,9 +1427,7 @@ class AudioPlayer(QObject):
             return False
 
         fade_in = (
-            0.5
-            - 0.5
-            * np.cos(np.linspace(0.0, np.pi, hop, dtype=np.float32))
+            0.5 - 0.5 * np.cos(np.linspace(0.0, np.pi, hop, dtype=np.float32))
         ).reshape(-1, 1)
         mixed = self._wsola_tail * (1.0 - fade_in) + segment[:hop] * fade_in
         self._wsola_output_buffer = np.concatenate((output_buffer, mixed), axis=0)

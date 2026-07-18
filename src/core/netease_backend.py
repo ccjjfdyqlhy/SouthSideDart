@@ -159,9 +159,7 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
         return code
 
     def sendCellphoneVerificationCode(self, phone: str, ctcode: int = 86) -> bool:
-        response = apis.login.setSendRegisterVerificationCodeViaCellphone(
-            phone, ctcode
-        )
+        response = apis.login.setSendRegisterVerificationCodeViaCellphone(phone, ctcode)
         assert isinstance(response, dict), 'Invalid cellphone code response'
         return response.get('code', 0) == 200
 

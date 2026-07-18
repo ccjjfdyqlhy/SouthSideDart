@@ -114,9 +114,7 @@ class DebugOverlay(QWidget):
 
     def _clearStaleProcessData(self, pids: dict[str, int]) -> None:
         stale_names = (
-            set(self.mem_datas)
-            | set(self.cpu_datas)
-            | set(self.tracked_pids)
+            set(self.mem_datas) | set(self.cpu_datas) | set(self.tracked_pids)
         ) - set(pids)
         for name in stale_names:
             self.mem_datas.pop(name, None)

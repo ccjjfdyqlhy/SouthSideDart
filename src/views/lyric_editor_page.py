@@ -58,6 +58,7 @@ class ManualLyricsViewer(LyricsViewer):
         self._updateViewLayout(multiple_factor)
         self.update()
 
+
 @dataclass
 class LyricTokenTiming:
     global_index: int
