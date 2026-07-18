@@ -2,6 +2,7 @@ import hashlib
 import os
 
 import requests
+import shiboken6
 
 from core.app_context import AppContext
 from core.cache_cleanup import touchCacheFile
@@ -160,6 +161,8 @@ class CloudFolderCard(QWidget):
                     f.write(image_bytes)
 
                 def applyPixmap():
+                    if not shiboken6.isValid(self.img_label):
+                        return
                     pixmap = QPixmap()
                     pixmap.loadFromData(image_bytes)
                     if not pixmap.isNull():
@@ -267,6 +270,8 @@ class SearchCloudFolderCard(QWidget):
                     f.write(image_bytes)
 
                 def applyPixmap():
+                    if not shiboken6.isValid(self.img_label):
+                        return
                     pixmap = QPixmap()
                     pixmap.loadFromData(image_bytes)
                     if not pixmap.isNull():
