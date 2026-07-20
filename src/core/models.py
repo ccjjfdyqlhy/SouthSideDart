@@ -751,6 +751,9 @@ class MusicServiceBackend(ABC):
     ) -> BackendSessionSnapshot: ...
 
     @abstractmethod
+    def loginViaCookie(self, music_u: str) -> BackendSessionSnapshot: ...
+
+    @abstractmethod
     def searchSong(
         self, keywords: str, offset: int = 0, limit: int = 30
     ) -> list[SearchSongInfo]: ...

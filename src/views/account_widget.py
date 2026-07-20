@@ -8,7 +8,7 @@ import requests
 from core.app_context import AppContext
 from core.backend import getBackend
 from core.config import cfg, saveConfig
-from core.dialogs import QRCodeLoginDialog, getTextLineedit, getValueBylist
+from core.dialogs import CookieLoginDialog, QRCodeLoginDialog, getTextLineedit, getValueBylist
 from core.i18n import tr
 from imports import (
     Action,
@@ -131,6 +131,7 @@ class AccountWidget(QWidget):
             [
                 tr('main_window.qr_code'),
                 tr('main_window.cell_phone'),
+                tr('main_window.cookie'),
             ],
         )
         if method is None:
@@ -138,6 +139,7 @@ class AccountWidget(QWidget):
         method_map = {
             tr('main_window.qr_code'): 'QR Code',
             tr('main_window.cell_phone'): 'Cell Phone',
+            tr('main_window.cookie'): 'Cookie',
         }
         method = method_map.get(method, method)
 
@@ -187,6 +189,18 @@ class AccountWidget(QWidget):
             cfg.session = snapshot.session
             cfg.login_status = snapshot.login_status
             cfg.login_method = 'cell phone'
+        elif method == 'Cookie':
+            self._logger.info('start logging in(via cookie)')
+            msgbox = CookieLoginDialog(self._mwindow)
+            if not msgbox.exec():
+                return
+            music_u = msgbox.cookie_input.text().strip()
+            if not music_u:
+                return
+            snapshot = getBackend().loginViaCookie(music_u)
+            cfg.session = snapshot.session
+            cfg.login_status = snapshot.login_status
+            cfg.login_method = 'cookie'
 
         InfoBar.success(
             tr('main_window.login_successful'),

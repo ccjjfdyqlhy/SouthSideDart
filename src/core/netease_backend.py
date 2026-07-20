@@ -183,6 +183,10 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
         apis.login.loginViaCellphone(phone, captcha=captcha, ctcode=ctcode)
         return self._sessionSnapshot()
 
+    def loginViaCookie(self, music_u: str) -> BackendSessionSnapshot:
+        apis.login.loginViaCookie(MUSIC_U=music_u)
+        return self._sessionSnapshot()
+
     def _songStorableFromApiSong(self, song: dict[str, Any]) -> SongStorable | None:
         if not song:
             return None

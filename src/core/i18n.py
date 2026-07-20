@@ -94,6 +94,8 @@ TRANSLATIONS: dict[str, list[str]] = {
         '正在初始化桌面歌词页面...',
     ],
     'desktop_lyrics.reset_position': ['Reset Position', '重置位置'],
+    'dialog.yes': ['OK', '确定'],
+    'dialog.no': ['Cancel', '取消'],
     'dialogs.i_scanned': ['I scanned', '我已扫码'],
     'dialogs.login_anomaly_risk_control': [
         'Login anomaly risk control',
@@ -462,6 +464,20 @@ TRANSLATIONS: dict[str, list[str]] = {
     'main_window.login': ['Login', '登录'],
     'main_window.login_successful': ['Login successful', '登录成功'],
     'main_window.qr_code': ['QR Code', '二维码'],
+    'main_window.cookie': ['Cookie', 'Cookie'],
+    'dialogs.login_via_cookie': ['Login via Cookie', 'Cookie 登录'],
+    'dialogs.cookie_login_desc': [
+        '1. Open https://music.163.com in your browser and log in\n'
+        '2. Press F12 → Application → Cookies → music.163.com\n'
+        '3. Copy the value of MUSIC_U and paste it below',
+        '1. 浏览器打开 https://music.163.com 并登录\n'
+        '2. 按 F12 → Application → Cookies → music.163.com\n'
+        '3. 复制 MUSIC_U 的值并粘贴到下方',
+    ],
+    'dialogs.enter_music_u_cookie': [
+        'Enter MUSIC_U cookie value',
+        '请输入 MUSIC_U Cookie 值',
+    ],
     'main_window.verification_code_sent': ['Verification Code Sent', '验证码已发送'],
     'main_window.logout': ['Log out', '登出账号'],
     'main_window.logout_successful': ['Logged out successfully', '已成功登出账号'],
