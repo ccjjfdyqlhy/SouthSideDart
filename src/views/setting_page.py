@@ -333,7 +333,6 @@ class SettingPage(QWidget):
             'download_concurrent_threads',
             advanced=True,
         )
-
         if lw:
             lw.subtitle('Setting up storage options...')
         self.addSection(
@@ -434,7 +433,7 @@ class SettingPage(QWidget):
             advanced=True,
         )
         crossfade_curve_box = ComboBox()
-        crossfade_curve_box.addItems(['smart', 'equal_power', 'sigmoid', 'linear'])
+        crossfade_curve_box.addItems(['equal_power', 'sigmoid', 'linear'])
         crossfade_curve_box.setCurrentText(cfg.crossfade_curve)
         crossfade_curve_box.currentTextChanged.connect(
             lambda value: setattr(cfg, 'crossfade_curve', value)
@@ -1137,6 +1136,7 @@ class SettingPage(QWidget):
         rect = card.rect().adjusted(1, 1, -1, -1)
         painter.setBrush(card.backgroundColor)
         painter.drawRoundedRect(rect, r, r)
+        painter.end()
 
     def addSeparateWidget(self, widget: QWidget, advanced: bool = False) -> None:
         self._trackAdvancedWidget(widget, advanced)

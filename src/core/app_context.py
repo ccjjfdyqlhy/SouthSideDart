@@ -5,6 +5,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from imports import QObject, Signal
+from views.comments_page import CommentsPage
 
 if TYPE_CHECKING:
     from core.audio_player import AudioPlayer
@@ -101,6 +102,7 @@ class AppContext:
         self.home_page: HomePage = cast('HomePage', None)
         self.library_page: LibraryPage = cast('LibraryPage', None)
         self.lyric_editor_page: LyricEditorPage = cast('LyricEditorPage', None)
+        self.comments_page: CommentsPage = cast('CommentsPage', None)
         self.dependences_window: DependencesWindow = cast('DependencesWindow', None)
         self.debugging_obj: Debugging = cast('Debugging', None)
         self.events_service: EventsServices = cast('EventsServices', None)

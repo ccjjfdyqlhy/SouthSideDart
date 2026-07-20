@@ -290,6 +290,8 @@ def _crossfade(payload: dict[str, Any]) -> dict[str, Any]:
         key_match=bool(payload.get('key_match', True)),
         agc=bool(payload.get('agc', True)),
         current_duration_seconds=payload.get('current_duration_seconds'),
+        current_gain=float(payload.get('current_gain', 1.0)),
+        next_gain=float(payload.get('next_gain', 1.0)),
     )
     samples = np.ascontiguousarray(info.samples, dtype=np.float32)
     return {
@@ -307,6 +309,9 @@ def _crossfade(payload: dict[str, Any]) -> dict[str, Any]:
         'key_compatibility': info.key_compatibility,
         'fade_out_profile': info.fade_out_profile,
         'fade_in_profile': info.fade_in_profile,
+        'transition_type': info.transition_type,
+        'timbre_similarity': info.timbre_similarity,
+        'beat_phase': info.beat_phase,
     }
 
 

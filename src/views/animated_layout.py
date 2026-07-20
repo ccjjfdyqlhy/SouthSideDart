@@ -113,14 +113,16 @@ class SFlowLayout(QLayout):
         self._eventFilterInstalled = False
 
     def setAnimation(
-        self, duration: int, ease: QEasingCurve.Type = QEasingCurve.Type.OutCubic
+        self,
+        duration: int | float,
+        ease: QEasingCurve.Type = QEasingCurve.Type.OutCubic,
     ) -> None:
         if not self._needAni:
             return
         self._reflowDuration = duration
         self._reflowEasing = ease
         for ani in self._anis:
-            ani.setDuration(duration)
+            ani.setDuration(int(duration))
             ani.setEasingCurve(ease)
 
     def setSlideAnimation(
@@ -201,7 +203,7 @@ class SFlowLayout(QLayout):
         ani = QPropertyAnimation(widget, b'geometry')
         ani.setStartValue(QRect(QPoint(0, 0), QSize(0, 0)))
         ani.setEndValue(QRect(QPoint(0, 0), widget.sizeHint()))
-        ani.setDuration(self._reflowDuration)
+        ani.setDuration(int(self._reflowDuration))
         ani.setEasingCurve(self._reflowEasing)
         widget.setProperty('flowAni', ani)
         widget.setProperty('flowAniPending', True)

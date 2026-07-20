@@ -285,3 +285,4 @@ class PlaylistPage(QWidget):
         painter.setPen(QPen(WHITE if theme.isDark() else BLACK, 1))
         painter.setBrush(self.bg_color)
         painter.drawRoundedRect(self.rect(), 10, 10)
+        painter.end()

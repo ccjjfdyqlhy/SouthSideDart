@@ -1,5 +1,6 @@
 from time import perf_counter_ns
 
+
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
@@ -11,6 +12,15 @@ class _BaseSmoothTimer:
         self._last_update = perf_counter_ns()
         self.anim_cycle = animation_time
         self.power_number = power_number
+
+    def getDebugInfo(self) -> list[str]:
+        return [
+            '_BaseSmoothTimer (',
+            f'  target_value={self._target_value:.3f}',
+            f'  current_value={self._calculate_current_value():.3f}',
+            f'  difference={self._difference:.3f}',
+            ')',
+        ]
 
     @property
     def target_value(self) -> float:
@@ -28,8 +38,9 @@ class _BaseSmoothTimer:
     @property
     def current_value(self) -> float:
         calculated_value = self._calculate_current_value()
+        actual = self._anim_cycle
 
-        if self._elapsed_time >= self._anim_cycle or self._anim_cycle <= 0:
+        if self._elapsed_time >= actual or actual <= 0:
             self._current_value = self._target_value
             self._difference = 0.0
 
@@ -86,17 +97,19 @@ class _BaseSmoothTimer:
     def _calculate_current_value(self) -> float:
         elapsed = self._elapsed_time
 
-        if elapsed >= self._anim_cycle or self._anim_cycle <= 0:
+        actual = self._anim_cycle
+
+        if elapsed >= actual or actual <= 0:
             return self._target_value
 
-        progress = elapsed / self._anim_cycle
+        progress = elapsed / actual
         return self._current_value + self._difference * self._ease_progress(progress)
 
     def _ease_progress(self, progress: float) -> float:
         raise NotImplementedError
 
 
-class SmoothTimer(_BaseSmoothTimer):
+class EaseOutBackTimer(_BaseSmoothTimer):
     def _ease_progress(self, progress: float) -> float:
         return (1.0 - pow(1.0 - progress, self._power_number)) * 1.5 - progress * 0.5
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 import threading
 from typing import Any, Literal
 import base64
@@ -662,6 +663,38 @@ class LoginQRCodeInfo:
     url: str
 
 
+@dataclass
+class UserInfo:
+    id: str
+    avatar_url: str
+    nickname: str
+
+
+@dataclass
+class BeReplyComment:
+    id: str
+    publisher: UserInfo
+    content: str
+
+
+@dataclass
+class Comment:
+    id: str
+    publisher: UserInfo
+    content: str
+    likes: int
+    date: datetime
+
+    be_replied: BeReplyComment | None
+
+
+@dataclass
+class CommentInfo:
+    comments: list[Comment]
+    total: int
+    cursor: str
+
+
 class MusicServiceBackend(ABC):
     @abstractmethod
     def getCurrentLoginStatus(self) -> dict: ...
@@ -796,3 +829,16 @@ class MusicServiceBackend(ABC):
 
     @abstractmethod
     def recordPlay(self, song_id: str) -> None: ...
+
+    @abstractmethod
+    def getComments(
+        self,
+        song_id: str,
+        page: int = 1,
+        limit: int = 20,
+        sort: Literal['recommend', 'time', 'hot'] = 'time',
+        cursor: str = '-1',
+    ) -> CommentInfo: ...
+
+    @abstractmethod
+    def addComment(self, song_id: str, content: str) -> None: ...

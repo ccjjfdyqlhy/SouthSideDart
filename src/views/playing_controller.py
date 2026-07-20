@@ -17,6 +17,8 @@ from views.setting_page import SettingPage
 from core.color import mixColor
 from imports import (
     BACKGROUND_RATIO_CHANGED,
+    COLLECT_DEBUG_INFO,
+    EMIT_DEBUG_INFO,
     LYRIC_LINE_CHANGED,
     PLAY_STATE_CHANGED,
     PLAY_START_PLAYLIST,
@@ -62,6 +64,7 @@ from core.audio_player import AudioPlayer
 from core.free_threaded_worker import jsonFloatArray
 from core.ws_server import QObjectHandler
 from core.config import cfg
+from views.translation_handler import TranslationHandler
 
 if TYPE_CHECKING:
     from views.main_window import MainWindow
@@ -222,14 +225,6 @@ class PlayingControllerLyricsViewer(QWidget):
         painter.end()
 
 
-class TranslationHandler:
-    def __init__(self):
-        self.current_text = ''
-
-    def setText(self, text):
-        self.current_text = text
-
-
 class PlayingController(QWidget):
     def __init__(
         self,
@@ -250,6 +245,8 @@ class PlayingController(QWidget):
         self.dragging = False
 
         self.norm_timer: EaseOutTimer = EaseOutTimer(0.5, 2)
+        self.norm_timer.current_value = 100000
+        self.norm_timer.target_value = 100000
         self.norm_buffer: deque[float] = deque()
 
         self.draw_ratio_timer = EaseOutTimer(0.25, 4)
@@ -351,6 +348,7 @@ class PlayingController(QWidget):
         event_bus.subscribe(
             FINISH_CROSSFADE, lambda: setattr(self.bar_alpha_timer, 'target_value', 1)
         )
+        event_bus.subscribe(COLLECT_DEBUG_INFO, self.emitDebugInfo)
 
         if self._mwindow:
             self.bg_color = mixColor(
@@ -364,6 +362,11 @@ class PlayingController(QWidget):
             self.bg_color = (
                 QColor(40, 40, 40) if theme.isDark() else QColor(230, 230, 230)
             )
+
+    def emitDebugInfo(self):
+        info = []
+        info.extend(self.norm_timer.getDebugInfo())
+        event_bus.emit(EMIT_DEBUG_INFO, 'PlayingController', info)
 
     def _onRefreshRateChanged(self):
         self.refresh_rate = max(60, self._app.primaryScreen().refreshRate() / 2)
@@ -396,6 +399,9 @@ class PlayingController(QWidget):
             else QColor(0, 0, 0),
             1 - cfg.background_ratio * 0.5,
         )
+
+        self.norm_timer.current_value = 100000
+        self.norm_timer.target_value = 100000
 
         if song:
             try:
@@ -492,8 +498,9 @@ class PlayingController(QWidget):
             if self.ctx.player.isPlaying():
                 self.norm_buffer.append(max(np.max(self.final_magnitudes), 1))
                 self.norm_timer.target_value = max(self.norm_buffer)
-                self.final_magnitudes /= self.norm_timer.current_value
-                self.final_magnitudes *= self.height() - 10
+                if len(self.norm_buffer) >= min(5, int(self.norm_buffer.maxlen or 1)):
+                    self.final_magnitudes /= self.norm_timer.current_value
+                    self.final_magnitudes *= self.height() - 10
 
             self.draw_magnitudes = np.maximum(
                 self.final_magnitudes, self.draw_magnitudes

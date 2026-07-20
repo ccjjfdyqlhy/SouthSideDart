@@ -106,6 +106,7 @@ class MainWindow(FluentWindowBase):
             self.ctx.home_page,
             self.ctx.library_page,
             self.ctx.lyric_editor_page,
+            self.ctx.comments_page,
         ]:
             if ctx.launch_window:
                 ctx.launch_window.subtitle(f'Adding {w} to stacked widget...')
@@ -605,6 +606,7 @@ class MainWindow(FluentWindowBase):
     def refreshLoginInformations(self) -> None:
         self.account_widget.refreshLoginInformations()
         self.ctx.home_page.accounter.refreshLoginInformations()
+        self.ctx.comments_page.refreshInformations()
 
     def _replaceHomePage(self) -> None:
         was_home_page = self.contents_widget.currentWidget() == self.ctx.home_page
@@ -776,3 +778,4 @@ class MainWindow(FluentWindowBase):
             )
         )
         painter.drawRect(self.rect())
+        painter.end()

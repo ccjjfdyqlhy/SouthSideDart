@@ -222,6 +222,7 @@ def _normalizeHexColor(value: Any, default: str) -> str:
 
 
 def _applyConfigJsonObject(data: dict[str, Any]) -> None:
+    data.pop('animation_speed', None)
     if data.get('language') not in ('en_US', 'zh_CN'):
         data.pop('language', None)
 

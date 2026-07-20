@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
-from . import eapi, weapi
+from . import eapi, getCurrentSession, weapi
 from ..utils import _random_string
 
 
@@ -229,5 +230,59 @@ def getMatchTrackByFP(
             'times': '1',
             'decrypt': '1',
             'rawdata': audioFP,
+        },
+    )
+
+
+def getComments(
+    id: str,
+    page: int,
+    limit: int,
+    sort: Literal['recommend', 'time', 'hot'],
+    cursor: str,
+):
+    """get comments of a song (web api).
+
+    Args:
+        id: song id
+        page: page number
+        limit: page size
+        sort: sorting of results
+
+    Returns:
+        dict
+    """
+    return weapi(
+        '/weapi/comment/resource/comments/get',
+        {
+            'cursor': cursor,
+            'offset': 0,
+            'orderType': {'recommend': 1, 'hot': 2, 'time': 3}.get(sort, 3),
+            'pageNo': page,
+            'pageSize': limit,
+            'rid': f'R_SO_4_{id}',
+            'threadId': f'R_SO_4_{id}',
+        },
+    )
+
+
+def addComment(id: str, content: str):
+    """add a comment for a song (web api).
+
+    Args:
+        id: song id
+        content: comment content
+
+    Returns:
+        dict
+    """
+    return weapi(
+        '/weapi/resource/comments/add',
+        {
+            'checkToken': getCurrentSession().cookies.get(
+                'WM_NIKE', 'not logged in!!!!!'
+            ),
+            'content': content,
+            'threadId': f'R_SO_4_{id}',
         },
     )

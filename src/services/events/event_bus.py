@@ -40,8 +40,6 @@ class EventBus:
         msg = f'subscribing {event} to {listener.__module__}.{listener.__name__}'
         if event not in ('image_asset_persisted', 'storable_count_changed'):
             self._logger.info(msg)
-        if self._lw:
-            self._lw.subtitle(msg)
         if self._lock is not None:
             with self._lock:
                 self._listeners[event].append(listener)

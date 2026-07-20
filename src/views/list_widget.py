@@ -537,7 +537,7 @@ class SScrollArea(SmoothScrollArea):
 
     def setWidget(self, widget: QWidget | None) -> None:
         setTransparentBackground(widget)
-        super().setWidget(widget)
+        super().setWidget(widget)  # type: ignore
         setTransparentBackground(widget)
 
     def _trigger_limit_anim(self, anim: QPropertyAnimation) -> None:

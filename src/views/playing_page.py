@@ -458,6 +458,11 @@ class PlayingPage(QWidget):
         bindIcon(self.lyric_editor_button, 'edit')
         self.lyric_editor_button.clicked.connect(self.editLyrics)
 
+        self.comments_button = PillToolButton(self)
+        self.comments_button.setFixedSize(32, 32)
+        bindIcon(self.comments_button, 'comment')
+        self.comments_button.clicked.connect(self.viewComments)
+
         event_bus.subscribe(PLAYBACK_SONG_LOADING, self._onPlaybackSongLoading)
         event_bus.subscribe(PLAYBACK_IMAGE_LOADED, self._onPlaybackImageLoaded)
         event_bus.subscribe(PLAYBACK_LYRICS_UPDATED, self._onPlaybackLyricsUpdated)
@@ -706,6 +711,14 @@ class PlayingPage(QWidget):
             self._mwindow_obj.togglePlayingPageExpand()
         self._mwindow_obj.contents_widget.setCurrentWidget(editor_page)
 
+    def viewComments(self):
+        self.comments_button.setChecked(False)
+
+        if self._mwindow_obj.dp_expanded:
+            self._mwindow_obj.togglePlayingPageExpand()
+        self._mwindow_obj.contents_widget.setCurrentWidget(self.ctx.comments_page)
+        self.ctx.comments_page.loadComments()
+
     def _lyricVideoSources(self, song: SongStorable) -> LyricVideoSources:
         lyrics = song.getLyrics()
         lyric = self._mgr.cur or lyrics['lyric'] or '[00:00.000]'
@@ -784,6 +797,7 @@ class PlayingPage(QWidget):
         rect = card.rect().adjusted(1, 1, -1, -1)
         painter.setBrush(card.backgroundColor)
         painter.drawRoundedRect(rect, r, r)
+        painter.end()
 
     def _onPlaybackSongLoading(self, song: SongStorable) -> None:
         for label in self.findChildren(QLabel):
@@ -914,6 +928,14 @@ class PlayingPage(QWidget):
             - self.lyric_video_export_button.height()
             - self.lyric_editor_button.height(),
         )
+        self.comments_button.move(
+            button_x,
+            translation_y
+            - 24
+            - self.lyric_video_export_button.height()
+            - self.lyric_editor_button.height()
+            - self.comments_button.height(),
+        )
         return super().resizeEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -925,6 +947,7 @@ class PlayingPage(QWidget):
         painter.drawRoundedRect(r, 10, 10)
         painter.drawRect(QRect(r.x() + 10, r.y(), r.width() - 10, r.height()))
         painter.drawRect(QRect(r.x(), r.y() + 10, r.width(), r.height() - 10))
+        painter.end()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if not self._mwindow_obj.dp_animating and not self.viewer.hovering:

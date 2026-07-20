@@ -7,6 +7,8 @@ import traceback
 from pathlib import Path
 import atexit
 
+from views.comments_page import CommentsPage
+
 _SRC_DIR = os.path.abspath(os.path.dirname(__file__))
 if _SRC_DIR in sys.path:
     sys.path.remove(_SRC_DIR)
@@ -629,6 +631,9 @@ if __name__ == '__main__':
         launchwindow.subtitle('Initializing library page...')
         lrp = LibraryPage(ctx)
         ctx.library_page = lrp
+        launchwindow.subtitle('Initializing comments page...')
+        ctp = CommentsPage(ctx)
+        ctx.comments_page = ctp
 
         ctx.playing_page = dp
         ctx.search_page = sp

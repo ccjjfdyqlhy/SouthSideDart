@@ -1160,6 +1160,8 @@ TRANSLATIONS: dict[str, list[str]] = {
         'Seamless Transition',
         '无缝过渡中',
     ],
+    'comments_page.title': ['Comments', '评论'],
+    'comments_page.say_sth': ['Say something...', '说点什么...'],
 }
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from core.app_context import AppContext
 
-from core.smooth import SmoothTimer
+from core.smooth import EaseOutBackTimer
 from imports import (
     QSize,
     Qt,
@@ -40,8 +40,8 @@ class DesktopLyricsViewer(LyricsViewer):
         self.indentation_y: float = 0
         self.indentation: bool = False
 
-        self.width_timer = SmoothTimer(0.5, 3)
-        self.height_timer = SmoothTimer(0.5, 3)
+        self.width_timer = EaseOutBackTimer(0.5, 3)
+        self.height_timer = EaseOutBackTimer(0.5, 3)
 
         self.dragging: bool = False
         self.dragging_point: QPoint = QPoint(0, 0)

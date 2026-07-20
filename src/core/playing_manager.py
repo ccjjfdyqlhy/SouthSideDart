@@ -85,6 +85,8 @@ _STREAM_PCM_READ_BYTES = _STREAM_SAMPLE_RATE * _STREAM_CHANNELS * 4
 _STREAM_PLAY_MIN_SECONDS = 5.0
 _STREAM_ANALYSIS_SECONDS = 30
 _LYRIC_TIME_RE = re.compile(r'\[(\d+):(\d+(?:\.\d+)?)\]')
+_CROSSFADE_OUTPUT_HANDOFF_MS = 120
+_CROSSFADE_HANDOFF_PREP_MS = _CROSSFADE_OUTPUT_HANDOFF_MS + 300
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,8 @@ class PlayingManager:
         self._crossfade_selection: PlaySelection | None = None
         self._crossfade_handoff_started = False
         self._crossfade_handoff_ready = False
+        self._crossfade_handoff_committed = False
+        self._crossfade_handoff_finish_at = 0.0
         self._crossfade_player_ready = False
         self._next_song_buffer: PreparedAudioBuffer | None = None
         self._crossfade_result: dict[str, object] | None = None
@@ -607,6 +611,8 @@ class PlayingManager:
         current_song_id: str | None = None,
         next_song_id: str | None = None,
         current_duration_seconds: float | None = None,
+        current_gain: float = 1.0,
+        next_gain: float = 1.0,
     ) -> CrossFadeInfo | None:
         if not cfg.enable_crossfade:
             self._logger.info('crossfade skipped -> disabled')
@@ -622,6 +628,8 @@ class PlayingManager:
             current_song_id,
             next_song_id,
             current_duration_seconds,
+            current_gain,
+            next_gain,
         )
         if worker_info is not None:
             info = worker_info
@@ -641,6 +649,8 @@ class PlayingManager:
                     key_match=cfg.crossfade_key_match,
                     agc=cfg.crossfade_agc,
                     current_duration_seconds=current_duration_seconds,
+                    current_gain=current_gain,
+                    next_gain=next_gain,
                 )
             except Exception as error:
                 self._logger.exception('failed to compute crossfade timing: %s', error)
@@ -653,7 +663,9 @@ class PlayingManager:
             f'speed={info.target_speed:.2f}x '
             f'ending={info.ending_type} '
             f'key={info.current_key}->{info.next_key} '
-            f'key_compat={info.key_compatibility:.2f}'
+            f'key_compat={info.key_compatibility:.2f} '
+            f'transition={info.transition_type} '
+            f'timbre={info.timbre_similarity:.2f}'
         )
         if info.fade_seconds <= 0:
             self._logger.info('crossfade skipped -> fade=0.000s')
@@ -668,6 +680,8 @@ class PlayingManager:
         current_song_id: str | None,
         next_song_id: str | None,
         current_duration_seconds: float | None,
+        current_gain: float,
+        next_gain: float,
     ) -> CrossFadeInfo | None:
         payload: dict[str, object] = {
             'current': current_audio.raw_data,
@@ -689,6 +703,8 @@ class PlayingManager:
             'key_match': cfg.crossfade_key_match,
             'agc': cfg.crossfade_agc,
             'current_duration_seconds': current_duration_seconds,
+            'current_gain': current_gain,
+            'next_gain': next_gain,
         }
         result = self._ft_worker.call('crossfade', payload, timeout=60.0)
         if not isinstance(result, dict):
@@ -719,6 +735,9 @@ class PlayingManager:
                 fade_in_profile=tuple(
                     float(value) for value in result.get('fade_in_profile', ())
                 ),
+                transition_type=str(result.get('transition_type', 'smart_crossfade')),
+                timbre_similarity=float(result.get('timbre_similarity', 0.0)),
+                beat_phase=float(result.get('beat_phase', 0.0)),
             )
         except (KeyError, TypeError, ValueError):
             self._logger.exception('invalid crossfade worker result')
@@ -831,6 +850,8 @@ class PlayingManager:
         self._crossfade_selection = None
         self._crossfade_handoff_started = False
         self._crossfade_handoff_ready = False
+        self._crossfade_handoff_committed = False
+        self._crossfade_handoff_finish_at = 0.0
         self._crossfade_player_ready = False
         if player is None:
             return
@@ -916,16 +937,18 @@ class PlayingManager:
         player.stopVolumeAnimation()
         player.stopPlaySpeedAnimation()
         player.setVolume(0.0)
+        player.stop()
         play_speed = cfg.play_speed
         play_pitch = cfg.play_pitch
 
         def _prepare() -> None:
             player.loadPrepared(prepared)
             player.setGain(self.next_song_gain or 1.0)
+            player.setVolume(0.0)
             player.setPlaySpeed(play_speed)
             player.setPlayPitch(play_pitch)
             player.prepareStream()
-            player.playFromLivePosition(crossfade_player._getExactPosition)
+            player.playFromLivePosition(crossfade_player.getSmoothPosition)
             self._crossfade_handoff_ready = player.isPlaying()
             if self._crossfade_handoff_ready:
                 self._logger.info('crossfade handoff player prepared')
@@ -935,6 +958,55 @@ class PlayingManager:
             daemon=True,
             name='southside-crossfade-handoff',
         ).start()
+
+    def _commitCrossfadeHandoff(
+        self,
+        selection: PlaySelection,
+        generation: int,
+        play_seq: int,
+    ) -> None:
+        if self._crossfade_handoff_committed:
+            return
+        if generation != self._crossfade_generation or play_seq != self._play_seq:
+            return
+        if self._crossfade_selection != selection:
+            return
+        if not self._crossfade_handoff_ready:
+            self._startCrossfadeHandoff(selection, generation, play_seq)
+            QTimer.singleShot(
+                10,
+                lambda: self._commitCrossfadeHandoff(
+                    selection,
+                    generation,
+                    play_seq,
+                ),
+            )
+            return
+
+        player = self._player
+        crossfade_player = self._crossfade_player
+        if player is None or crossfade_player is None:
+            return
+
+        self._crossfade_handoff_committed = True
+        self._crossfade_handoff_finish_at = (
+            timeLib.perf_counter() + _CROSSFADE_OUTPUT_HANDOFF_MS / 1000.0
+        )
+        player.stopVolumeAnimation()
+        crossfade_player.stopVolumeAnimation()
+        player.animateVolumeCurve(
+            1.0,
+            _CROSSFADE_OUTPUT_HANDOFF_MS,
+            'linear',
+            True,
+        )
+        crossfade_player.animateVolumeCurve(
+            0.0,
+            _CROSSFADE_OUTPUT_HANDOFF_MS,
+            'linear',
+            False,
+        )
+        self._logger.info('crossfade output handoff committed')
 
     def _clearCrossfadePlaybackLoad(self) -> None:
         self._crossfade_result = None
@@ -1110,6 +1182,15 @@ class PlayingManager:
                     return
 
                 self.next_song_audio = audio  # type: ignore
+                if not self._hasLoadedLoudnessGain(next_song):
+                    gain = self._computeLoudnessGain(
+                        cfg.target_lufs,
+                        self.next_song_audio,  # type: ignore[arg-type]
+                    )
+                    self._setStorableLoudness(next_song, cfg.target_lufs, gain)
+                else:
+                    gain = next_song.loudness_gain
+                self.next_song_gain = gain
                 current_id = (
                     self.current_song.content_cache_hash
                     if self.current_song is not None
@@ -1120,20 +1201,21 @@ class PlayingManager:
                     self.next_song_audio,  # type: ignore
                     current_song_id=current_id or None,
                     next_song_id=next_song.content_cache_hash or None,
+                    current_gain=(
+                        self._player.loudness_gain if self._player is not None else 1.0
+                    ),
+                    next_gain=gain,
                 )
-                if not self._hasLoadedLoudnessGain(next_song):
-                    gain = self._computeLoudnessGain(
-                        cfg.target_lufs,
-                        self.next_song_audio,  # type: ignore[arg-type]
-                    )
-                    self._setStorableLoudness(next_song, cfg.target_lufs, gain)
-                else:
-                    gain = next_song.loudness_gain
-                self.next_song_gain = gain
 
                 next_buffer: PreparedAudioBuffer | None = None
+                transition_buffer: PreparedAudioBuffer | None = None
                 if self.crossfade_info is not None:
                     next_buffer = AudioPlayer.prepareBuffer(audio)  # type: ignore
+                    transition_buffer = PreparedAudioBuffer(
+                        self.crossfade_info.samples,
+                        self.crossfade_info.sample_rate,
+                        self.crossfade_info.channels,
+                    )
 
                 if not _is_preload_current():
                     self._logger.info('discarding stale prepared crossfade buffers')
@@ -1141,7 +1223,7 @@ class PlayingManager:
                 self._next_song_buffer = next_buffer
 
                 output_devices = None
-                if next_buffer is not None:
+                if transition_buffer is not None:
                     try:
                         output_devices = getAudioDevices()
                     except Exception:
@@ -1157,11 +1239,11 @@ class PlayingManager:
 
                 self.next_song_selection = selection
                 self.preloaded = True
-                if next_buffer is not None:
+                if transition_buffer is not None:
                     self._schedule(
                         self._prepareCrossfadePlayer,
                         selection,
-                        next_buffer,
+                        transition_buffer,
                         output_devices,
                     )
 
@@ -1206,10 +1288,10 @@ class PlayingManager:
             and str(selection.song.id) == self._preload_download_song_id
             and byuser
         ):
-            self._logger.info('deferring next to preload download completion')
-            self._pending_play_selection = selection
-            event_bus.emit(PLAYBACK_SONG_LOADING, selection.song)
-            return
+            self._logger.info('bypassing in-progress preload for manual next')
+            self._preload_download_seq += 1
+            self._preload_download_song_id = None
+            self._pending_play_selection = None
 
         if (
             isinstance(self.next_song_audio, AudioSegment_)
@@ -1271,32 +1353,32 @@ class PlayingManager:
             self.playStorable(selection.song, preloaded_audio=audio)
             return
 
+        duration_ms = max(1, int(info.fade_seconds * 1000))
+        play_speed = cfg.play_speed
+        play_pitch = cfg.play_pitch
+        player.stopPlaySpeedAnimation()
+        player.setPlaySpeed(play_speed)
+        player.setPlayPitch(play_pitch)
+        crossfade_player.setGain(1.0)
+        crossfade_player.setVolume(1.0)
+        crossfade_player.stopPlayPitchAnimation()
+        crossfade_player.stopPlaySpeedAnimation()
+        crossfade_player.setPlaySpeed(play_speed)
+        crossfade_player.setPlayPitch(play_pitch)
+        try:
+            crossfade_player.play()
+        except Exception:
+            self._logger.exception(
+                'failed to start crossfade output; falling back to direct playback'
+            )
+            self.playStorable(selection.song, preloaded_audio=audio)
+            return
+
         event_bus.emit(START_CROSSFADE)
         self.crossfading = True
         self._crossfade_generation += 1
         generation = self._crossfade_generation
-        duration_ms = max(1, int(info.fade_seconds * 1000))
-        play_speed = cfg.play_speed
-        play_pitch = cfg.play_pitch
-        tempo_speed = play_speed
-        if cfg.crossfade_tempo_match and info.target_speed > 0:
-            tempo_correction = max(0.85, min(1.15, 1.0 / info.target_speed))
-            tempo_speed = play_speed * tempo_correction
-
-        player.stopPlaySpeedAnimation()
-        player.setPlaySpeed(play_speed)
-        player.setPlayPitch(play_pitch)
-        crossfade_player.setGain(gain)
-        crossfade_player.setVolume(0.0)
-        # Start the next player at the beat-matched rate, then return smoothly
-        # to the user's rate while the transition is audible.
-        crossfade_player.stopPlayPitchAnimation()
-        crossfade_player.stopPlaySpeedAnimation()
-        crossfade_player.setPlaySpeed(tempo_speed)
-        crossfade_player.setPlayPitch(play_pitch)
-        crossfade_player.play()
-        if abs(tempo_speed - play_speed) > 1e-4:
-            crossfade_player.animatePlaySpeed(play_speed, duration_ms)
+        player.stop()
 
         self.current_song = selection.song
         self.current_song_audio = audio
@@ -1304,7 +1386,7 @@ class PlayingManager:
         play_seq = self._play_seq
         self.total_length = self._storableDuration(
             selection.song,
-            crossfade_player.getLength(),
+            len(audio) / 1000.0,
         )
         result: dict[str, object] = {'audio': audio}
         self._loadPlaybackImage(selection.song, result)
@@ -1312,18 +1394,22 @@ class PlayingManager:
         self._crossfade_gain_audio = audio
         self._crossfade_play_seq = play_seq
 
-        if info.fade_out_profile and info.fade_in_profile:
-            player.animateVolumeProfile(info.fade_out_profile, duration_ms)
-            crossfade_player.animateVolumeProfile(info.fade_in_profile, duration_ms)
-        else:
-            curve = cfg.crossfade_curve
-            player.animateVolumeCurve(0.0, duration_ms, curve, False)
-            crossfade_player.animateVolumeCurve(1.0, duration_ms, curve, True)
-
-        handoff_delay_ms = max(1, int(duration_ms * 0.9))
+        handoff_delay_ms = max(1, duration_ms - _CROSSFADE_HANDOFF_PREP_MS)
         QTimer.singleShot(
             handoff_delay_ms,
             lambda: self._startCrossfadeHandoff(
+                selection,
+                generation,
+                play_seq,
+            ),
+        )
+        output_handoff_delay_ms = max(
+            1,
+            duration_ms - _CROSSFADE_OUTPUT_HANDOFF_MS,
+        )
+        QTimer.singleShot(
+            output_handoff_delay_ms,
+            lambda: self._commitCrossfadeHandoff(
                 selection,
                 generation,
                 play_seq,
@@ -1348,10 +1434,18 @@ class PlayingManager:
         if self._crossfade_selection != selection:
             return
 
-        if not self._crossfade_handoff_ready:
-            self._startCrossfadeHandoff(selection, generation, play_seq)
+        if not self._crossfade_handoff_committed:
+            self._commitCrossfadeHandoff(selection, generation, play_seq)
             QTimer.singleShot(
-                20,
+                10,
+                lambda: self._finishCrossfade(selection, generation, play_seq),
+            )
+            return
+
+        handoff_remaining = self._crossfade_handoff_finish_at - timeLib.perf_counter()
+        if handoff_remaining > 0:
+            QTimer.singleShot(
+                max(1, int(handoff_remaining * 1000) + 1),
                 lambda: self._finishCrossfade(selection, generation, play_seq),
             )
             return
@@ -2088,6 +2182,9 @@ class PlayingManager:
             next_audio = self.next_song_audio
             next_selection = self.next_song_selection
             computed_crossfade: CrossFadeInfo | None = None
+            prepared_next_buffer: PreparedAudioBuffer | None = None
+            transition_buffer: PreparedAudioBuffer | None = None
+            output_devices: list[Any] | None = None
             if (
                 isinstance(next_audio, AudioSegment_)
                 and next_selection is not None
@@ -2102,6 +2199,19 @@ class PlayingManager:
                         analysis_duration if analysis_audio is not None else None
                     ),
                 )
+                if computed_crossfade is not None:
+                    prepared_next_buffer = AudioPlayer.prepareBuffer(next_audio)
+                    transition_buffer = PreparedAudioBuffer(
+                        computed_crossfade.samples,
+                        computed_crossfade.sample_rate,
+                        computed_crossfade.channels,
+                    )
+                    try:
+                        output_devices = getAudioDevices()
+                    except Exception:
+                        self._logger.exception(
+                            'failed to query output devices for streaming crossfade'
+                        )
 
             def _apply() -> None:
                 if not _is_current():
@@ -2114,6 +2224,13 @@ class PlayingManager:
                     and self.next_song_selection is next_selection
                 ):
                     self.crossfade_info = computed_crossfade
+                    self._next_song_buffer = prepared_next_buffer
+                    if transition_buffer is not None:
+                        self._prepareCrossfadePlayer(
+                            next_selection,
+                            transition_buffer,
+                            output_devices,
+                        )
 
             self._schedule(_apply)
 

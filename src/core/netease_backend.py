@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import logging
 import time
@@ -15,7 +16,10 @@ from core.models import (
     ArtistInfo,
     BackendAccountInfo,
     BackendSessionSnapshot,
+    BeReplyComment,
     CloudFolderInfo,
+    Comment,
+    CommentInfo,
     LoginQRCodeInfo,
     MusicServiceBackend,
     PrivilegeInfo,
@@ -26,6 +30,7 @@ from core.models import (
     TrackDetailInfo,
     TrackLyricsInfo,
     SearchCloudFolderInfo,
+    UserInfo,
     getCachedHashes,
 )
 
@@ -645,6 +650,49 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                 },
             }
         )
+
+    def getComments(
+        self,
+        song_id: str,
+        page: int = 1,
+        limit: int = 20,
+        sort: Literal['recommend'] | Literal['time'] | Literal['hot'] = 'time',
+        cursor: str = '-1',
+    ):
+        with pyncm.getCurrentSession():
+            response = apis.track.getComments(song_id, page, limit, sort, cursor)
+            assert isinstance(response, dict), 'Invaild response'
+            data: dict = response.get('data', {})
+        return CommentInfo(
+            [
+                Comment(
+                    str(obj['commentId']),
+                    UserInfo(
+                        obj['user']['encryptUserId'],
+                        obj['user']['avatarUrl'],
+                        obj['user']['nickname'],
+                    ),
+                    obj['content'],
+                    obj['likedCount'],
+                    datetime.fromtimestamp(obj['time'] / 1000),
+                    BeReplyComment(
+                        str(obj['beReplied']['beRepliedCommentId']),
+                        UserInfo(
+                            obj['beReplied']['user']['encryptUserId'],
+                            obj['beReplied']['user']['avatarUrl'],
+                            obj['beReplied']['user']['nickname'],
+                        ),
+                        obj['beReplied']['content'],
+                    ),
+                )
+                for obj in data['comments']
+            ],
+            data['totalCount'],
+            cursor,
+        )
+    
+    def addComment(self, song_id: str, content: str) -> None:
+        apis.track.addComment(song_id, content)
 
 
 def _tag_texts(value: Any) -> list[str]:

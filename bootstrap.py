@@ -51,6 +51,7 @@ PYSIDE_REQUIRED_FILES = [
 MAX_WHEEL_DOWNLOAD_WORKERS = 8
 PIP_RETRIES = '2'
 PIP_TIMEOUT = '20'
+PIP_HEARTBEAT_INTERVAL = 0.8
 MIRROR_LATENCY_TIMEOUT = 3
 FREE_THREADED_REQUIREMENT_NAMES = [
     'numpy',
@@ -74,6 +75,32 @@ PIP_SIZE_UNITS = {
     'mb': 1000 * 1000,
     'gb': 1000 * 1000 * 1000,
 }
+INSTALLED_PACKAGES_SCRIPT = r"""
+import importlib.metadata as metadata
+import json
+
+packages = []
+for distribution in metadata.distributions():
+    name = distribution.metadata.get('Name') or getattr(distribution, 'name', '')
+    if name:
+        packages.append({'name': name, 'version': distribution.version})
+print(json.dumps(packages))
+"""
+MISSING_IMPORTS_SCRIPT = r"""
+import importlib
+import json
+import sys
+
+module_map = json.loads(sys.argv[1])
+missing = []
+for package_name, module_name in module_map.items():
+    try:
+        importlib.import_module(module_name)
+    except Exception as e:
+        print(f'{package_name}: {type(e).__name__}: {e}', file=sys.stderr)
+        missing.append(package_name)
+print(json.dumps(missing))
+"""
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -138,7 +165,17 @@ def getRequirements() -> list[RequirementInfo]:
 
 
 def getFreeThreadedRequirements() -> list[RequirementInfo]:
-    return [RequirementInfo(name=name) for name in FREE_THREADED_REQUIREMENT_NAMES]
+    pinned_versions = {
+        normalizePackageName(requirement.name): requirement.version
+        for requirement in getRequirements()
+    }
+    return [
+        RequirementInfo(
+            name=name,
+            version=pinned_versions.get(normalizePackageName(name), ''),
+        )
+        for name in FREE_THREADED_REQUIREMENT_NAMES
+    ]
 
 
 def getTableRequirements() -> list[RequirementInfo]:
@@ -205,13 +242,27 @@ def parsePipDownloadSize(line: str) -> int | None:
     return int(float(match.group('size')) * multiplier)
 
 
+def parsePipPackageName(line: str, prefix: str) -> str | None:
+    match = re.search(rf'{prefix}\s+([a-zA-Z0-9_\-\.]+)', line)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def parseWheelPackageName(path_text: str) -> str:
+    wheel_name = Path(path_text.strip()).name
+    if wheel_name.endswith('.whl'):
+        return wheel_name.split('-', 1)[0].replace('_', '-')
+    return wheel_name
+
+
 def getInstalledPackages(
     python_exe: Path = PYTHON_EXE,
     env: dict[str, str] | None = None,
 ) -> list[RequirementInfo]:
     result = []
     completed = subprocess.run(
-        [str(python_exe), '-m', 'pip', 'list', '--format', 'json'],
+        [str(python_exe), '-c', INSTALLED_PACKAGES_SCRIPT],
         cwd=str(SCRIPT_DIR),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -222,6 +273,22 @@ def getInstalledPackages(
     )
     if completed.returncode != 0:
         _logger.warning(
+            'importlib metadata check failed for %s: %s',
+            python_exe,
+            completed.stdout.strip(),
+        )
+        completed = subprocess.run(
+            [str(python_exe), '-m', 'pip', 'list', '--format', 'json'],
+            cwd=str(SCRIPT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=getPipEnv(env),
+        )
+    if completed.returncode != 0:
+        _logger.warning(
             'pip list failed for %s: %s',
             python_exe,
             completed.stdout.strip(),
@@ -230,7 +297,7 @@ def getInstalledPackages(
     try:
         parsed = json.loads(completed.stdout)
     except json.JSONDecodeError:
-        _logger.warning('pip list returned invalid JSON for %s', python_exe)
+        _logger.warning('package list returned invalid JSON for %s', python_exe)
         return result
     for data in parsed:
         if normalizePackageName(data['name']) == 'pip':
@@ -276,28 +343,57 @@ def getMissingImports(
     import_checks: dict[str, str],
     env: dict[str, str] | None = None,
 ) -> list[RequirementInfo]:
-    missing: list[RequirementInfo] = []
-    for requirement in required:
-        module_name = import_checks.get(normalizePackageName(requirement.name))
-        if module_name is None:
+    requirement_map = {
+        normalizePackageName(requirement.name): requirement for requirement in required
+    }
+    module_map = {
+        normalized: module_name
+        for normalized, module_name in import_checks.items()
+        if normalized in requirement_map
+    }
+    if not module_map:
+        return []
+
+    completed = subprocess.run(
+        [
+            str(python_exe),
+            '-c',
+            MISSING_IMPORTS_SCRIPT,
+            json.dumps(module_map),
+        ],
+        cwd=str(SCRIPT_DIR),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
+    output = completed.stdout.strip()
+    if completed.returncode != 0:
+        _logger.warning('import check failed in %s: %s', python_exe, output)
+        return list(requirement_map.values())
+    output_lines = output.splitlines()
+    parsed_missing: list[str] | None = None
+    parsed_index = -1
+    for index in range(len(output_lines) - 1, -1, -1):
+        try:
+            candidate = json.loads(output_lines[index])
+        except json.JSONDecodeError:
             continue
-        completed = subprocess.run(
-            [str(python_exe), '-c', f'import {module_name}'],
-            cwd=str(SCRIPT_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=env,
+        if isinstance(candidate, list):
+            parsed_missing = candidate
+            parsed_index = index
+            break
+    if parsed_missing is None:
+        _logger.warning(
+            'import check returned invalid JSON for %s: %s',
+            python_exe,
+            output,
         )
-        if completed.returncode != 0:
-            _logger.warning(
-                '%s import failed in %s: %s',
-                module_name,
-                python_exe,
-                completed.stdout.strip(),
-            )
-            missing.append(requirement)
-    return missing
+        return list(requirement_map.values())
+    missing_names = set(parsed_missing)
+    for line in output_lines[:parsed_index] + output_lines[parsed_index + 1 :]:
+        _logger.warning('worker import missing: %s', line)
+    return [requirement_map[name] for name in missing_names if name in requirement_map]
 
 
 def getPySideRequirements(required: list[RequirementInfo]) -> list[RequirementInfo]:
@@ -385,16 +481,29 @@ class BootstrapWindow(QWidget):
                     'Tips: Cache cleanup protects core data and prefers removing less-used files first.',
                 ],
                 'mirror': 'Using {mirror} mirror ({latency} ms). Installing dependencies...',
+                'checking_environment': 'Checking installed packages...',
+                'checking_runtime': 'Checking {runtime} package state...',
+                'checking_imports': 'Checking {runtime} imports...',
                 'checking': 'Environment check complete. Preparing dependencies from {mirror}...',
                 'starting': 'Dependencies installed. Starting SouthsideMusic...',
                 'download_stage': 'Downloading wheels ({workers} parallel tasks)...',
+                'batch_download': (
+                    'Resolving and downloading wheels '
+                    '({count} packages, deps included, {elapsed}s)...'
+                ),
                 'download': 'Downloading {package} ({percent}%)...',
                 'downloaded': 'Downloaded {package} ({current}/{total})',
                 'cached': 'Using cached wheel {package} ({current}/{total})',
                 'finalizing': 'Downloads complete. Finalizing dependencies; finishing up...',
                 'checking_install': 'Installation complete. Running a final check...',
                 'installing': 'Installing dependencies; finishing up...',
+                'offline_install': 'Installing from wheel cache ({count} packages, {elapsed}s)...',
+                'online_install': 'Installing missing packages ({count} packages, {elapsed}s)...',
                 'runtime_install': 'Installing {runtime} requirements...',
+                'install_failed': (
+                    'Dependency setup failed ({packages}). Check your network and '
+                    'restart SouthsideMusic to retry.'
+                ),
             },
             'zh': {
                 'title': '设置环境',
@@ -417,16 +526,26 @@ class BootstrapWindow(QWidget):
                     'Tips: 缓存清理会保护核心数据，并优先回收较少使用的文件。',
                 ],
                 'mirror': '正在使用 {mirror} 镜像（{latency} 毫秒），开始安装依赖…',
+                'checking_environment': '正在检查已经安装的库…',
+                'checking_runtime': '正在检查 {runtime} 的库状态…',
+                'checking_imports': '正在检查 {runtime} 导入状态…',
                 'checking': '环境检查完成，正在从 {mirror} 准备依赖…',
                 'starting': '依赖安装完成，正在启动 SouthsideMusic…',
                 'download_stage': '正在并行下载 wheel（{workers} 路）…',
+                'batch_download': (
+                    '正在解析并下载 wheel'
+                    '（{count} 个库，包含子依赖，已用 {elapsed} 秒）…'
+                ),
                 'download': '正在下载 {package}（{percent}%）…',
                 'downloaded': '已下载 {package}（{current}/{total}）',
                 'cached': '使用缓存 wheel {package}（{current}/{total}）',
                 'finalizing': '下载完成，正在整理依赖；马上就好…',
                 'checking_install': '安装完成，正在做最后检查…',
                 'installing': '正在安装依赖，最后整理一下…',
+                'offline_install': '正在从本地 wheel 缓存安装（{count} 个库，已用 {elapsed} 秒）…',
+                'online_install': '正在安装缺失依赖（{count} 个库，已用 {elapsed} 秒）…',
                 'runtime_install': '正在安装 {runtime} 依赖…',
+                'install_failed': '依赖安装失败（{packages}）。请检查网络后重启 SouthsideMusic 重试。',
             },
         }
         self._tips = self._text_map[self._language]['tips']
@@ -459,6 +578,17 @@ class BootstrapWindow(QWidget):
         self._download_completed = 0
         self._download_progress: dict[str, int] = {}
         self._download_progress_lock = threading.Lock()
+        self._progress_value = 0
+        self._install_stage_start = 10
+        self._install_stage_end = 98
+        self._check_started = False
+
+        self._gil_installed: list[RequirementInfo] | None = None
+        self._gil_unsatisfied: list[RequirementInfo] | None = None
+        self._gil_pyside_incomplete: bool | None = None
+        self._ft_runtime_ok: bool | None = None
+        self._ft_installed: list[RequirementInfo] | None = None
+        self._ft_unsatisfied: list[RequirementInfo] | None = None
 
         self.latency_test_threads = []
         self.latency_testing = False
@@ -516,10 +646,14 @@ class BootstrapWindow(QWidget):
             target=self.installRequirements, args=(mirror_name, mirror_url, latency)
         ).start()
 
-    def installRequirements(self, mirror_name: str, mirror_url: str, latency: float):
+    def installRequirements(
+        self, mirror_name: str, mirror_url: str, latency: float
+    ) -> None:
         self.updateStatusText(
             self._text('mirror', mirror=mirror_name, latency=int(latency * 1000))
         )
+        self._install_stage_start = 10
+        self._install_stage_end = 78
         self.installRuntimeRequirements(
             'GIL Python',
             PYTHON_EXE,
@@ -527,34 +661,54 @@ class BootstrapWindow(QWidget):
             mirror_url,
             site_packages=SITE_PACKAGES,
             reinstall_pyside=True,
+            installed=self._gil_installed,
+            unsatisfied=self._gil_unsatisfied,
+            pyside_incomplete=self._gil_pyside_incomplete,
         )
+        self._install_stage_start = 78
+        self._install_stage_end = 98
         self.installFreeThreadedRequirements(mirror_url)
+        missing = self.getMissingRuntimeRequirements()
+        if missing:
+            package_names = ', '.join(requirement.name for requirement in missing)
+            _logger.error('dependency setup incomplete: %s', package_names)
+            self.progressChanged.emit(
+                99,
+                self._text('install_failed', packages=package_names),
+            )
+            return
         self.progressChanged.emit(
             100,
             self._text('starting'),
         )
         self.allDone.emit()
 
-    def installFreeThreadedRequirements(self, mirror_url: str) -> None:
-        if not FREE_THREADED_PYTHON_EXE.exists():
+    def installFreeThreadedRequirements(self, mirror_url: str) -> bool:
+        if self._ft_runtime_ok is False:
+            return True
+        if self._ft_runtime_ok is None and not FREE_THREADED_PYTHON_EXE.exists():
             _logger.warning(
                 'free-threaded Python not found: %s', FREE_THREADED_PYTHON_EXE
             )
-            return
-        if not isFreeThreadedPython(FREE_THREADED_PYTHON_EXE):
+            return True
+        if self._ft_runtime_ok is None and not isFreeThreadedPython(
+            FREE_THREADED_PYTHON_EXE
+        ):
             _logger.warning(
                 'free-threaded Python failed validation: %s',
                 FREE_THREADED_PYTHON_EXE,
             )
-            return
+            return False
 
-        self.installRuntimeRequirements(
+        return self.installRuntimeRequirements(
             'no-GIL Python',
             FREE_THREADED_PYTHON_EXE,
             getFreeThreadedRequirements(),
             mirror_url,
             env=getFreeThreadedEnv(),
             import_checks=FREE_THREADED_IMPORT_CHECKS,
+            installed=self._ft_installed,
+            unsatisfied=self._ft_unsatisfied,
         )
 
     def installRuntimeRequirements(
@@ -569,22 +723,35 @@ class BootstrapWindow(QWidget):
         install_args: list[str] | None = None,
         env: dict[str, str] | None = None,
         import_checks: dict[str, str] | None = None,
-    ) -> None:
+        installed: list[RequirementInfo] | None = None,
+        unsatisfied: list[RequirementInfo] | None = None,
+        pyside_incomplete: bool | None = None,
+    ) -> bool:
         self.updateStatusText(self._text('runtime_install', runtime=runtime_name))
-        installed = getInstalledPackages(python_exe, env=env)
-        unsatisfied = getUnsatisfiedRequirements(installed, required)
-        if import_checks is not None:
+        prechecked_unsatisfied = unsatisfied is not None
+        if installed is None:
+            self.progressChanged.emit(
+                5,
+                self._text('checking_runtime', runtime=runtime_name),
+            )
+            installed = getInstalledPackages(python_exe, env=env)
+        if unsatisfied is None:
+            unsatisfied = getUnsatisfiedRequirements(installed, required)
+        if import_checks is not None and not prechecked_unsatisfied:
             unsatisfied = mergeRequirements(
                 unsatisfied
                 + getMissingImports(python_exe, required, import_checks, env=env)
             )
-        pyside_incomplete = (
-            reinstall_pyside
-            and site_packages is not None
-            and not isFullPySideInstalled(site_packages)
-        )
+        if pyside_incomplete is None:
+            pyside_incomplete = (
+                reinstall_pyside
+                and site_packages is not None
+                and not isFullPySideInstalled(site_packages)
+            )
         if not unsatisfied and not pyside_incomplete:
-            return
+            return True
+
+        success = True
 
         installed_versions = {
             normalizePackageName(requirement.name): requirement.version
@@ -616,6 +783,8 @@ class BootstrapWindow(QWidget):
             if returncode == 0:
                 for requirement in required:
                     self.updateStatus(requirement.name, 'Installed')
+            else:
+                success = False
 
         if pyside_incomplete:
             pyside_requirements = getPySideRequirements(required)
@@ -641,6 +810,79 @@ class BootstrapWindow(QWidget):
             if returncode == 0:
                 for requirement in pyside_requirements:
                     self.updateStatus(requirement.name, 'Installed')
+            else:
+                success = False
+        return success
+
+    def getMissingRuntimeRequirements(self) -> list[RequirementInfo]:
+        missing = getUnsatisfiedRequirements(
+            getInstalledPackages(PYTHON_EXE), getRequirements()
+        )
+        if self._ft_runtime_ok:
+            ft_required = getFreeThreadedRequirements()
+            ft_missing = getUnsatisfiedRequirements(
+                getInstalledPackages(
+                    FREE_THREADED_PYTHON_EXE, env=getFreeThreadedEnv()
+                ),
+                ft_required,
+            )
+            ft_missing = mergeRequirements(
+                ft_missing
+                + getMissingImports(
+                    FREE_THREADED_PYTHON_EXE,
+                    ft_required,
+                    FREE_THREADED_IMPORT_CHECKS,
+                    env=getFreeThreadedEnv(),
+                )
+            )
+            missing = mergeRequirements(missing + ft_missing)
+        if not isFullPySideInstalled():
+            missing = mergeRequirements(
+                missing + getPySideRequirements(getRequirements())
+            )
+        return missing
+
+    def emitInstallProgress(self, value: int, text: str) -> None:
+        value = max(0, min(100, value))
+        span = self._install_stage_end - self._install_stage_start
+        mapped = self._install_stage_start + int(span * value / 100)
+        self.progressChanged.emit(mapped, text)
+
+    def startProgressHeartbeat(
+        self,
+        start: int,
+        end: int,
+        text_factory: Callable[[int], str],
+    ) -> tuple[threading.Event, threading.Thread]:
+        stop_event = threading.Event()
+        span = max(0, end - start)
+        started_at = time.perf_counter()
+        self.emitInstallProgress(start, text_factory(0))
+
+        def heartbeat() -> None:
+            while not stop_event.wait(PIP_HEARTBEAT_INTERVAL):
+                elapsed = int(time.perf_counter() - started_at)
+                if span <= 0:
+                    value = start
+                else:
+                    value = start + int(span * elapsed / (elapsed + 20))
+                self.emitInstallProgress(value, text_factory(elapsed))
+
+        thread = threading.Thread(
+            target=heartbeat,
+            daemon=True,
+            name='southside-bootstrap-progress',
+        )
+        thread.start()
+        return stop_event, thread
+
+    def stopProgressHeartbeat(
+        self,
+        stop_event: threading.Event,
+        thread: threading.Thread,
+    ) -> None:
+        stop_event.set()
+        thread.join(timeout=1)
 
     def runFastPipInstall(
         self,
@@ -693,6 +935,133 @@ class BootstrapWindow(QWidget):
         wheelhouse: Path,
         env: dict[str, str] | None = None,
     ) -> list[RequirementInfo]:
+        missing: list[RequirementInfo] = []
+        for requirement in requirements:
+            if findCachedWheel(requirement, wheelhouse) is not None:
+                self.updateStatus(requirement.name, 'Cached')
+                self.markDownloadComplete(requirement.name, False)
+            else:
+                missing.append(requirement)
+        if not missing:
+            return []
+
+        failed = self.downloadRequirementWheelsBatch(
+            python_exe,
+            mirror_url,
+            missing,
+            wheelhouse,
+            env=env,
+        )
+        if not failed:
+            return []
+
+        _logger.warning('batch wheel download failed, retrying package-by-package')
+        return self.downloadRequirementWheelsIndividually(
+            python_exe,
+            mirror_url,
+            missing,
+            wheelhouse,
+            env=env,
+        )
+
+    def downloadRequirementWheelsBatch(
+        self,
+        python_exe: Path,
+        mirror_url: str,
+        requirements: list[RequirementInfo],
+        wheelhouse: Path,
+        env: dict[str, str] | None = None,
+    ) -> list[RequirementInfo]:
+        if not requirements:
+            return []
+
+        wheelhouse.mkdir(parents=True, exist_ok=True)
+        stop_event, heartbeat_thread = self.startProgressHeartbeat(
+            12,
+            88,
+            lambda elapsed: self._text(
+                'batch_download',
+                count=len(requirements),
+                elapsed=elapsed,
+            ),
+        )
+        command = [
+            str(python_exe),
+            '-m',
+            'pip',
+            'download',
+            '--disable-pip-version-check',
+            '--no-input',
+            '--only-binary',
+            ':all:',
+            '--prefer-binary',
+            '--retries',
+            PIP_RETRIES,
+            '--timeout',
+            PIP_TIMEOUT,
+            '--cache-dir',
+            str(PIP_CACHE_DIR),
+            '--index-url',
+            mirror_url,
+            '--dest',
+            str(wheelhouse),
+            *[getRequirementSpec(requirement) for requirement in requirements],
+        ]
+        returncode = 1
+        try:
+            popen = subprocess.Popen(
+                command,
+                cwd=str(SCRIPT_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                env=getPipEnv(env),
+            )
+            if popen.stdout:
+                for line in popen.stdout:
+                    line_text = line.strip()
+                    _logger.debug('[download batch] %s', line_text)
+                    if line_text.startswith('Collecting '):
+                        package = parsePipPackageName(line_text, 'Collecting')
+                        if package is not None:
+                            self.updateStatus(package, 'Resolving')
+                    elif line_text.startswith('Using cached '):
+                        package = parsePipPackageName(line_text, 'Using cached')
+                        if package is not None:
+                            self.updateStatus(package, 'Cached')
+                    elif line_text.startswith('Downloading '):
+                        package = parsePipPackageName(line_text, 'Downloading')
+                        if package is not None:
+                            self.updateStatus(package, 'Downloading')
+                    elif line_text.startswith('Saved '):
+                        package = parseWheelPackageName(line_text.split('Saved ', 1)[1])
+                        self.updateStatus(package, 'Cached')
+            popen.wait()
+            returncode = popen.returncode
+        except OSError as e:
+            _logger.exception(e)
+        finally:
+            self.stopProgressHeartbeat(stop_event, heartbeat_thread)
+
+        if returncode != 0:
+            for requirement in requirements:
+                self.updateStatus(requirement.name, 'Download Failed')
+            return requirements
+
+        for requirement in requirements:
+            self.markDownloadComplete(requirement.name, True)
+        return []
+
+    def downloadRequirementWheelsIndividually(
+        self,
+        python_exe: Path,
+        mirror_url: str,
+        requirements: list[RequirementInfo],
+        wheelhouse: Path,
+        env: dict[str, str] | None = None,
+    ) -> list[RequirementInfo]:
         workers = min(MAX_WHEEL_DOWNLOAD_WORKERS, len(requirements))
         self.updateStatusText(self._text('download_stage', workers=workers))
         wheelhouse.mkdir(parents=True, exist_ok=True)
@@ -701,6 +1070,7 @@ class BootstrapWindow(QWidget):
         def download(requirement: RequirementInfo) -> bool:
             if findCachedWheel(requirement, wheelhouse) is not None:
                 self.updateStatus(requirement.name, 'Cached')
+                self.markDownloadComplete(requirement.name, False)
                 return True
 
             self.updateStatus(requirement.name, 'Downloading (0%)')
@@ -829,9 +1199,15 @@ class BootstrapWindow(QWidget):
         env: dict[str, str] | None = None,
     ) -> int:
         ensurePipCacheDirs()
-        self.progressChanged.emit(
+        text_key = 'offline_install' if no_index else 'online_install'
+        stop_event, heartbeat_thread = self.startProgressHeartbeat(
             90,
-            self._text('finalizing'),
+            98,
+            lambda elapsed: self._text(
+                text_key,
+                count=len(args),
+                elapsed=elapsed,
+            ),
         )
         command = [
             str(python_exe),
@@ -841,6 +1217,8 @@ class BootstrapWindow(QWidget):
             '--disable-pip-version-check',
             '--no-input',
             '--no-compile',
+            '--only-binary',
+            ':all:',
             '--prefer-binary',
             '--retries',
             PIP_RETRIES,
@@ -856,59 +1234,58 @@ class BootstrapWindow(QWidget):
         if wheelhouse is not None:
             command.extend(['--find-links', str(wheelhouse)])
         command.extend(args)
-        popen = subprocess.Popen(
-            command,
-            cwd=str(SCRIPT_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=getPipEnv(env),
-        )
-        if not popen.stdout:
+        returncode = 1
+        try:
+            popen = subprocess.Popen(
+                command,
+                cwd=str(SCRIPT_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=getPipEnv(env),
+            )
+            if popen.stdout:
+                for line in popen.stdout:
+                    c = line.strip()
+                    _logger.debug(c)
+                    if 'Collecting' in c:
+                        self.updateStatusText(self._text('installing'))
+                        package = parsePipPackageName(c, 'Collecting')
+                        if package is not None:
+                            self.updateStatus(package, 'Collecting')
+                    elif 'Downloading' in c:
+                        package = parsePipPackageName(c, 'Downloading')
+                        if package is not None:
+                            self.updateStatus(package, 'Downloading')
+                    elif 'Using cached' in c:
+                        package = parsePipPackageName(c, 'Using cached')
+                        if package is not None:
+                            self.updateStatus(package, 'Cached')
+                    elif 'Installing collected packages:' in c:
+                        packages_str = c.split('Installing collected packages:')[1]
+                        packages = [
+                            p.strip() for p in packages_str.split(',') if p.strip()
+                        ]
+                        for package in packages:
+                            self.updateStatus(package, 'Installing')
+                    elif 'Successfully installed' in c:
+                        packages_str = c.split('Successfully installed')[1]
+                        matches = re.findall(r'([a-zA-Z0-9_\-]+)-[\d\.]+', packages_str)
+                        for package in matches:
+                            self.updateStatus(package, 'Installed')
             popen.wait()
-            return popen.returncode
-        for line in popen.stdout:
-            c = line.strip()
-            _logger.debug(c)
-            if 'Collecting' in c:
-                self.updateStatusText(self._text('installing'))
-                # Extract package name from "Collecting package_name" or "Collecting package_name (version)"
-                match = re.search(r'Collecting\s+([a-zA-Z0-9_\-\.]+)', c)
-                if match:
-                    package = match.group(1)
-                    self.updateStatus(package, 'Collecting')
-            elif 'Downloading' in c:
-                # Extract package name from "Downloading package_name-version..."
-                match = re.search(r'Downloading\s+([a-zA-Z0-9_\-]+)', c)
-                if match:
-                    package = match.group(1)
-                    self.updateStatus(package, 'Downloading')
-            elif 'Using cached' in c:
-                # Extract package name from "Using cached package_name-version..."
-                match = re.search(r'Using cached\s+([a-zA-Z0-9_\-]+)', c)
-                if match:
-                    package = match.group(1)
-                    self.updateStatus(package, 'Cached')
-            elif 'Installing collected packages:' in c:
-                # Extract all package names after "Installing collected packages:"
-                packages_str = c.split('Installing collected packages:')[1]
-                packages = [p.strip() for p in packages_str.split(',') if p.strip()]
-                for package in packages:
-                    self.updateStatus(package, 'Installing')
-            elif 'Successfully installed' in c:
-                # Extract all package names after "Successfully installed"
-                packages_str = c.split('Successfully installed')[1]
-                # Parse "package-version package2-version..." format
-                matches = re.findall(r'([a-zA-Z0-9_\-]+)-[\d\.]+', packages_str)
-                for package in matches:
-                    self.updateStatus(package, 'Installed')
-        popen.wait()
-        if popen.returncode == 0:
-            self.progressChanged.emit(
+            returncode = popen.returncode
+        except OSError as e:
+            _logger.exception(e)
+        finally:
+            self.stopProgressHeartbeat(stop_event, heartbeat_thread)
+
+        if returncode == 0:
+            self.emitInstallProgress(
                 99,
                 self._text('checking_install'),
             )
-        return popen.returncode
+        return returncode
 
     def runPipUninstall(
         self,
@@ -943,7 +1320,11 @@ class BootstrapWindow(QWidget):
         self.task.emit(lambda: self.status_label.setText(text))
 
     def updateProgressUi(self, value: int, text: str) -> None:
-        self.progress_bar.setValue(max(0, min(100, value)))
+        value = max(0, min(100, value))
+        if value < self._progress_value and self._progress_value < 100:
+            value = self._progress_value
+        self._progress_value = value
+        self.progress_bar.setValue(value)
         self.status_label.setText(text)
 
     def updateDownloadProgress(self, package_name: str, package_percent: int) -> None:
@@ -956,7 +1337,7 @@ class BootstrapWindow(QWidget):
                 100 * self._download_total
             )
         overall = 11 + int(total_percent * 79)
-        self.progressChanged.emit(
+        self.emitInstallProgress(
             overall,
             self._text('download', package=package_name, percent=package_percent),
         )
@@ -972,10 +1353,15 @@ class BootstrapWindow(QWidget):
             self._download_total, self._download_completed + 1
         )
         overall = 11 + int(self._download_completed * 79 / max(1, self._download_total))
-        state = 'Downloaded' if downloaded else 'Using cached wheel'
-        self.progressChanged.emit(
+        text_key = 'downloaded' if downloaded else 'cached'
+        self.emitInstallProgress(
             overall,
-            f'{state} {package_name} ({self._download_completed}/{self._download_total})',
+            self._text(
+                text_key,
+                package=package_name,
+                current=self._download_completed,
+                total=self._download_total,
+            ),
         )
 
     def updateStatus(self, package_name: str, status: str) -> None:
@@ -1000,8 +1386,10 @@ class BootstrapWindow(QWidget):
             return
 
     def finishLatencyFallback(self) -> None:
+        deadline = time.perf_counter() + MIRROR_LATENCY_TIMEOUT + 1
         for thread in self.latency_test_threads:
-            thread.join(timeout=MIRROR_LATENCY_TIMEOUT + 1)
+            remaining = max(0, deadline - time.perf_counter())
+            thread.join(timeout=remaining)
         with self.latency_lock:
             if not self.latency_testing:
                 return
@@ -1010,20 +1398,48 @@ class BootstrapWindow(QWidget):
             'PyPI', MIRRORS['PyPI'], float(MIRROR_LATENCY_TIMEOUT)
         )
 
-    def startTestLatency(self):
+    def startTestLatency(self) -> None:
+        if self._check_started:
+            return
+        self._check_started = True
+        self.progressChanged.emit(1, self._text('checking_environment'))
+        threading.Thread(
+            target=self._startTestLatency,
+            daemon=True,
+            name='southside-bootstrap-check',
+        ).start()
+
+    def _startTestLatency(self) -> None:
+        self.progressChanged.emit(
+            2,
+            self._text('checking_runtime', runtime='GIL Python'),
+        )
         installed = getInstalledPackages(PYTHON_EXE)
         required = getRequirements()
         unsatisfied = getUnsatisfiedRequirements(installed, required)
         pyside_incomplete = not isFullPySideInstalled()
+        self._gil_installed = installed
+        self._gil_unsatisfied = unsatisfied
+        self._gil_pyside_incomplete = pyside_incomplete
+
         ft_unsatisfied: list[RequirementInfo] = []
         if FREE_THREADED_PYTHON_EXE.exists():
+            self.progressChanged.emit(
+                4,
+                self._text('checking_runtime', runtime='no-GIL Python'),
+            )
             if isFreeThreadedPython(FREE_THREADED_PYTHON_EXE):
+                self._ft_runtime_ok = True
                 ft_installed = getInstalledPackages(
                     FREE_THREADED_PYTHON_EXE,
                     env=getFreeThreadedEnv(),
                 )
                 ft_required = getFreeThreadedRequirements()
                 ft_unsatisfied = getUnsatisfiedRequirements(ft_installed, ft_required)
+                self.progressChanged.emit(
+                    6,
+                    self._text('checking_imports', runtime='no-GIL Python'),
+                )
                 ft_unsatisfied = mergeRequirements(
                     ft_unsatisfied
                     + getMissingImports(
@@ -1033,17 +1449,21 @@ class BootstrapWindow(QWidget):
                         env=getFreeThreadedEnv(),
                     )
                 )
+                self._ft_installed = ft_installed
+                self._ft_unsatisfied = ft_unsatisfied
                 _logger.info(
                     '%d no-GIL packages installed, %d required',
                     len(ft_installed),
                     len(ft_required),
                 )
             else:
+                self._ft_runtime_ok = False
                 _logger.warning(
                     'free-threaded Python failed validation: %s',
                     FREE_THREADED_PYTHON_EXE,
                 )
         else:
+            self._ft_runtime_ok = False
             _logger.warning(
                 'free-threaded Python not found: %s', FREE_THREADED_PYTHON_EXE
             )
@@ -1087,5 +1507,5 @@ if __name__ == '__main__':
     app = QApplication([])
     bwindow = BootstrapWindow()
     bwindow.allDone.connect(runMain)
-    bwindow.startTestLatency()
+    QTimer.singleShot(0, bwindow.startTestLatency)
     app.exec()

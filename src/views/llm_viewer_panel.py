@@ -6,8 +6,6 @@ import math
 import threading
 from typing import Callable
 
-import clipboard
-
 from core import theme
 from core.app_context import AppContext
 from core.config import cfg, saveConfig
@@ -19,6 +17,7 @@ from imports import (
     ComboBox,
     FluentIcon,
     QAbstractAnimation,
+    QApplication,
     QEasingCurve,
     QFrame,
     QHBoxLayout,
@@ -748,13 +747,13 @@ class LLMViewerPanel(QFrame):
 
     def copyLLMMarkdown(self) -> None:
         parts: list[str] = []
-        for browser in self.llm_chat_widget.findChildren(TextBrowser):
-            markdown = browser.toMarkdown().strip()
+        for viewer in self.llm_chat_widget.findChildren(ChattingViewer):
+            markdown = viewer.toMarkdown().strip()
             if markdown:
                 parts.append(markdown)
         if not parts:
             return
-        clipboard.copy('\n\n'.join(parts))
+        QApplication.clipboard().setText('\n\n'.join(parts))
 
     def _addLLMCopyButton(self, message_index: int) -> None:
         wrapper = QWidget()

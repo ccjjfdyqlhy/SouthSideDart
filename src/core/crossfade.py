@@ -45,6 +45,9 @@ class CrossFadeInfo:
     key_compatibility: float = 0.0
     fade_out_profile: tuple[float, ...] = ()
     fade_in_profile: tuple[float, ...] = ()
+    transition_type: str = 'smart_crossfade'
+    timbre_similarity: float = 0.0
+    beat_phase: float = 0.0
 
     def debugInfo(self) -> list[str]:
         samples_shape = tuple(int(value) for value in self.samples.shape)
@@ -62,6 +65,9 @@ class CrossFadeInfo:
             f'current_key={self.current_key or None}',
             f'next_key={self.next_key or None}',
             f'key_compatibility={self.key_compatibility:.3f}',
+            f'transition_type={self.transition_type}',
+            f'timbre_similarity={self.timbre_similarity:.3f}',
+            f'beat_phase={self.beat_phase:.3f}',
         ]
 
     def to_dict(self) -> dict:
@@ -82,6 +88,9 @@ class CrossFadeInfo:
             'key_compatibility': self.key_compatibility,
             'fade_out_profile': list(self.fade_out_profile),
             'fade_in_profile': list(self.fade_in_profile),
+            'transition_type': self.transition_type,
+            'timbre_similarity': self.timbre_similarity,
+            'beat_phase': self.beat_phase,
         }
 
     @classmethod
@@ -103,6 +112,9 @@ class CrossFadeInfo:
             key_compatibility=d.get('key_compatibility', 0.0),
             fade_out_profile=tuple(float(v) for v in d.get('fade_out_profile', ())),
             fade_in_profile=tuple(float(v) for v in d.get('fade_in_profile', ())),
+            transition_type=d.get('transition_type', 'smart_crossfade'),
+            timbre_similarity=float(d.get('timbre_similarity', 0.0)),
+            beat_phase=float(d.get('beat_phase', 0.0)),
         )
 
     def cache_path(self, token: str) -> str:
@@ -366,12 +378,14 @@ def _cache_token(
     tempo_match: bool,
     key_match: bool,
     agc: bool,
+    current_gain: float,
+    next_gain: float,
 ) -> str:
     payload = '|'.join(
         (
             current_id,
             next_id,
-            'smart-crossfade-v2',
+            'structural-transition-v3',
             str(sample_rate),
             str(channels),
             f'{crossfade_seconds:.6f}',
@@ -382,6 +396,8 @@ def _cache_token(
             str(tempo_match),
             str(key_match),
             str(agc),
+            f'{current_gain:.6f}',
+            f'{next_gain:.6f}',
         )
     ).encode('utf-8')
     return hashlib.sha256(payload).hexdigest()
@@ -402,6 +418,8 @@ def getCrossfade(
     key_match: bool = False,
     agc: bool = False,
     current_duration_seconds: float | None = None,
+    current_gain: float = 1.0,
+    next_gain: float = 1.0,
 ) -> CrossFadeInfo:
     strength = _clamp(crossfade_strength, 0.0, 1.0)
     sample_rate = current.frame_rate
@@ -428,6 +446,8 @@ def getCrossfade(
             tempo_match,
             key_match,
             agc,
+            current_gain,
+            next_gain,
         )
         cached = CrossFadeInfo.load_from_cache(cache_token, sample_rate, channels)
         if cached is not None and cached.fade_seconds > 0:
@@ -454,7 +474,7 @@ def getCrossfade(
     next_head = next[:window_ms]
     current_samples = _segment_to_samples(current_tail, sample_rate, channels)  # type: ignore
     current_analysis_samples = _segment_to_samples(
-        current_analysis, # type: ignore
+        current_analysis,  # type: ignore
         sample_rate,
         channels,  # type: ignore
     )
@@ -466,12 +486,14 @@ def getCrossfade(
     )
     next_key = _detect_key(next_samples, sample_rate) if key_match else ''
     key_compat = _key_compatibility(current_key, next_key)
+    timbre_similarity = _timbre_similarity(current_samples, next_samples, sample_rate)
     _logger.debug(
-        'crossfade ending=%s key=%s->%s compat=%.2f',
+        'crossfade ending=%s key=%s->%s compat=%.2f timbre=%.2f',
         ending_type.value,
         current_key,
         next_key,
         key_compat,
+        timbre_similarity,
     )
 
     current_bpm = (
@@ -507,6 +529,14 @@ def getCrossfade(
         current_bpm,
         next_bpm,
     )
+    transition_type = _select_transition_type(
+        ending_type,
+        key_compat,
+        timbre_similarity,
+        current_bpm,
+        next_bpm,
+    )
+    beat_phase = _detect_beat_phase(current_samples, sample_rate, current_bpm)
 
     if fade_frames <= 0:
         return CrossFadeInfo(
@@ -521,6 +551,8 @@ def getCrossfade(
             current_key=current_key,
             next_key=next_key,
             key_compatibility=key_compat,
+            transition_type=transition_type,
+            timbre_similarity=timbre_similarity,
         )
 
     start_frame = len(current_samples) - fade_frames
@@ -538,7 +570,11 @@ def getCrossfade(
         sample_rate,
         curve,
     )
-    mixed = current_tail * fade_out + next_head * fade_in
+    if curve == 'smart':
+        fade_out, fade_in = _transition_fades(transition_type, fade_frames, beat_phase)
+    mixed = current_tail * fade_out * _clamp(
+        current_gain, 0.0, 4.0
+    ) + next_head * fade_in * _clamp(next_gain, 0.0, 4.0)
     if agc:
         mixed = _apply_agc(mixed, sample_rate)
     mixed = _limit_samples(mixed)
@@ -558,6 +594,9 @@ def getCrossfade(
         key_compatibility=key_compat,
         fade_out_profile=fade_out_profile,
         fade_in_profile=fade_in_profile,
+        transition_type=transition_type,
+        timbre_similarity=timbre_similarity,
+        beat_phase=beat_phase,
     )
 
     if cache_token is not None and current_duration_seconds is None:
@@ -785,6 +824,90 @@ def _select_fade_curve(curve: str, frames: int) -> tuple[np.ndarray, np.ndarray]
     return _equal_power_fades(frames)
 
 
+def _timbre_similarity(
+    current: np.ndarray, following: np.ndarray, sample_rate: int
+) -> float:
+    """Compare broad spectral shape without depending on absolute loudness."""
+    analysis_frames = min(len(current), len(following), sample_rate * 8)
+    if analysis_frames < sample_rate:
+        return 0.0
+
+    def _spectral_signature(samples: np.ndarray) -> np.ndarray:
+        mono = np.mean(samples, axis=1)
+        frame_size = min(4096, len(mono))
+        starts = np.linspace(0, len(mono) - frame_size, 12).astype(np.intp)
+        signature = np.zeros(12, dtype=np.float64)
+        frequencies = np.fft.rfftfreq(frame_size, 1.0 / sample_rate)
+        bands = np.geomspace(50.0, min(16000.0, sample_rate * 0.48), 13)
+        window = np.hanning(frame_size)
+        for start in starts:
+            spectrum = np.abs(np.fft.rfft(mono[start : start + frame_size] * window))
+            for index in range(12):
+                mask = (frequencies >= bands[index]) & (frequencies < bands[index + 1])
+                if np.any(mask):
+                    signature[index] += float(np.mean(spectrum[mask] ** 2))
+        signature = np.log1p(signature)
+        signature -= float(np.mean(signature))
+        norm = float(np.linalg.norm(signature))
+        return signature / norm if norm > 1e-8 else signature
+
+    current_signature = _spectral_signature(current[-analysis_frames:])
+    next_signature = _spectral_signature(following[:analysis_frames])
+    similarity = float(np.dot(current_signature, next_signature))
+    return _clamp((similarity + 1.0) * 0.5, 0.0, 1.0)
+
+
+def _detect_beat_phase(samples: np.ndarray, sample_rate: int, bpm: float) -> float:
+    """Return the normalized distance from the tail to its next likely beat."""
+    if bpm <= 0 or len(samples) < sample_rate * 2:
+        return 0.0
+    envelope_rate = 200
+    mono = np.mean(samples, axis=1).astype(np.float64)
+    envelope = _onset_envelope(mono, sample_rate, envelope_rate)
+    period = int(round(envelope_rate * 60.0 / bpm))
+    if period < 2 or len(envelope) < period * 2:
+        return 0.0
+    scores = np.array(
+        [float(np.sum(envelope[offset::period])) for offset in range(period)]
+    )
+    strongest = int(np.argmax(scores))
+    tail_phase = (len(envelope) - 1 - strongest) % period
+    return float((period - tail_phase) % period) / period
+
+
+def _select_transition_type(
+    ending_type: EndingType,
+    key_compatibility: float,
+    timbre_similarity: float,
+    current_bpm: float,
+    next_bpm: float,
+) -> str:
+    tempo_ratio = _tempo_transition_speed(current_bpm, next_bpm)
+    tempo_compatible = current_bpm > 0 and next_bpm > 0 and tempo_ratio != 1.0
+    if key_compatibility >= 0.65 and timbre_similarity >= 0.55:
+        return 'harmonic_blend'
+    if tempo_compatible and ending_type in (EndingType.ABRUPT, EndingType.LIVE):
+        return 'beat_cut'
+    if timbre_similarity >= 0.72:
+        return 'texture_bridge'
+    return 'smart_crossfade'
+
+
+def _transition_fades(
+    transition_type: str, frames: int, beat_phase: float
+) -> tuple[np.ndarray, np.ndarray]:
+    if transition_type == 'beat_cut' and frames > 1:
+        progress = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+        center = 0.35 + beat_phase * 0.3
+        fade_in = 1.0 / (1.0 + np.exp(-(progress - center) * 28.0))
+        fade_in = fade_in.reshape(-1, 1).astype(np.float32, copy=False)
+        return 1.0 - fade_in, fade_in
+    if transition_type == 'texture_bridge' and frames > 1:
+        progress = np.linspace(0.0, 1.0, frames, dtype=np.float32).reshape(-1, 1)
+        return np.sqrt(1.0 - progress), progress**0.75
+    return _equal_power_fades(frames)
+
+
 def _make_fade_profiles(
     current_tail: np.ndarray,
     next_head: np.ndarray,
@@ -794,10 +917,12 @@ def _make_fade_profiles(
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Create slowly varying gains that compensate for real song energy."""
     if curve != 'smart' or len(current_tail) < 2 or len(next_head) < 2:
-        fade_out, fade_in = _select_fade_curve(curve, min(len(current_tail), len(next_head)))
-        return tuple(float(v) for v in fade_out[:: max(1, len(fade_out) // 9), 0]), tuple(
-            float(v) for v in fade_in[:: max(1, len(fade_in) // 9), 0]
+        fade_out, fade_in = _select_fade_curve(
+            curve, min(len(current_tail), len(next_head))
         )
+        return tuple(
+            float(v) for v in fade_out[:: max(1, len(fade_out) // 9), 0]
+        ), tuple(float(v) for v in fade_in[:: max(1, len(fade_in) // 9), 0])
 
     frames = min(len(current_tail), len(next_head))
     fade_out, fade_in = _equal_power_fades(frames)
