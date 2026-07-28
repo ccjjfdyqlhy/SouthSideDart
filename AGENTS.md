@@ -179,12 +179,80 @@ from imports import QTimer, QVBoxLayout, QWidget, Qt, Signal, event_bus
 - Prefer `self.lst.clear()` and rebuild over complex diff/reconciliation logic.
 - Fix root causes, but keep the edit surface local.
 
-# Southside Dual Workspace(Only in Codex)
+## Four-Workspace Collaboration (Only in Codex)
 
-Python project:
-D:\PythonProjects\SouthsideMusic
+These four repositories form one product family, but each repository has a
+separate owner boundary and build flow:
 
-Java project:
-D:\downloads\Southside-Legacy
+| Workspace | Role | Main integration points |
+| --- | --- | --- |
+| `D:\PythonProjects\SouthsideMusic` | PySide6 music desktop app and local music bridge server | Serves JSON packets at `ws://localhost:15489/`; checks and applies its own GitHub releases |
+| `D:\downloads\Southside-Legacy` | Java/Minecraft client | Consumes the local music bridge, uses the remote IRC/auth API, and is the game artifact launched by `southside-launcher` |
+| `D:\downloads\southside-launcher` | React/Tauri launcher | Reads release/JDK metadata from `SouthsideLegacyIRC`, downloads the Legacy JAR/version JSON and runtime files, then starts the Java client |
+| `D:\WebProjects\SouthsideLegacyIRC` | Flask IRC, auth, subscription, release, and resource service | Owns `southside.top` REST/WebSocket contracts used by Legacy and the launcher; also exposes user-facing download links |
 
-跨端协议任务必须先读两个项目的入口说明，再确认 Python 发出的 JSON 字段和 Java 消费字段是否一致。
+### Integration Map
+
+1. `SouthsideMusic <-> Southside-Legacy` is a local, bidirectional music
+   bridge. Python is the WebSocket server and Java is the client. Python sends
+   song, lyric, cover, play-state, progress, playlist, and FFT packets; Java
+   renders them and sends music-control commands back.
+2. `Southside-Legacy <-> SouthsideLegacyIRC` is the remote authentication and
+   chat connection. Legacy uses `https://southside.top/api`, obtains a short-lived
+   `clientToken`, exchanges it for a one-use WebSocket `ticket`, and connects to
+   `/ws`. The server owns account, HWID, passkey/subscription, IRC, and session
+   rules.
+3. `southside-launcher -> SouthsideLegacyIRC -> Southside-Legacy` is the release
+   path. The launcher reads release and JDK resource metadata from the IRC
+   service, resolves the JAR/version JSON URLs, downloads dependencies, and
+   launches Legacy. Release API shape changes therefore require checking both
+   the Flask producer and the TypeScript/Rust consumers.
+4. `SouthsideMusic` distribution is currently independent of the Legacy
+   launcher release pipeline. The IRC website links users to the Music GitHub
+   releases, while Music performs its own update check. Do not merge these two
+   update mechanisms by assumption.
+
+### Protocol Boundaries
+
+- Do not confuse the local music bridge with the remote IRC WebSocket. The
+  music bridge uses `localhost:15489`, no ticket, and JSON text frames selected
+  by `option`. IRC uses the remote `/api` and `/ws` endpoints with
+  `clientToken`/one-use `ticket` authentication.
+- For local music protocol work, read this file and
+  `D:\downloads\Southside-Legacy\AGENTS.md`, then compare the exact Python JSON
+  fields with the Java parser. Start with `src/core/ws_server.py`, `src/main.py`,
+  `src/views/playing_controller.py`, and `src/views/playing_page.py` on Python;
+  start with `SouthsideMusicModule.java` and
+  `SouthsideMusicWebsocketClient.java` on Java.
+- For IRC/auth work, treat `SouthsideLegacyIRC` as the contract producer and
+  Legacy as a consumer. Check `D:\downloads\Southside-Legacy\Api.md`, the Java
+  `Verify`/`WebSocketChatClient` code, and the matching Flask blueprints before
+  changing fields, status codes, token lifetime, ticket behavior, or message
+  types.
+- For release work, check both launcher implementations: `server.ts` supports
+  the web development path, while `src-tauri/src/lib.rs` owns the packaged local
+  desktop path. Keep their release parsing, resource resolution, download, and
+  launch behavior aligned with the IRC release endpoints.
+
+### Cross-Workspace Workflow
+
+1. Read the `AGENTS.md` and primary entry documentation in every workspace
+   touched by the change. If a workspace has no `AGENTS.md`, use its `README.md`,
+   `package.json`, build metadata, and actual entry code.
+2. Identify the producer, transport, and consumer before editing. Search exact
+   endpoint names, `option` values, and JSON fields instead of inferring a
+   contract from UI labels.
+3. Keep edits in the owning repository unless the contract changes. When a
+   contract changes, update all affected producers and consumers in the same
+   task and preserve compatible fallbacks where practical.
+4. Validate each touched workspace with its native toolchain:
+   `uv run python -m py_compile <file>` / Ruff for Music,
+   `.\gradlew.bat compileJava --rerun-tasks` for Legacy,
+   `npm run lint` and `npm run build` for the launcher, and
+   `uv run python -m unittest discover -s tests` for IRC.
+5. For an end-to-end local music check, start SouthsideMusic first, confirm the
+   server is listening on port `15489`, then start/connect Legacy and test both
+   outbound state packets and inbound controls.
+6. Do not run production deployment, publish releases, upload artifacts, or use
+   real credentials as part of normal cross-workspace validation unless the
+   user explicitly requests that operation.
