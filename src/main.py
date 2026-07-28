@@ -7,8 +7,6 @@ import traceback
 from pathlib import Path
 import atexit
 
-from views.comments_page import CommentsPage
-
 _SRC_DIR = os.path.abspath(os.path.dirname(__file__))
 if _SRC_DIR in sys.path:
     sys.path.remove(_SRC_DIR)
@@ -33,6 +31,7 @@ app.processEvents()
 
 from views.home_page import HomePage
 from views.library_page import LibraryPage
+from views.comments_page import CommentsPage
 
 from core.lyrics import LRCLyricParser, YRCLyricParser
 from views.dependences_window import DependencesWindow
