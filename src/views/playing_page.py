@@ -717,6 +717,8 @@ class PlayingPage(QWidget):
         if self._mwindow_obj.dp_expanded:
             self._mwindow_obj.togglePlayingPageExpand()
         self._mwindow_obj.contents_widget.setCurrentWidget(self.ctx.comments_page)
+        self.ctx.comments_page.page = 1
+        self.ctx.comments_page.cursor = '-1'
         self.ctx.comments_page.loadComments()
 
     def _lyricVideoSources(self, song: SongStorable) -> LyricVideoSources:
@@ -900,7 +902,7 @@ class PlayingPage(QWidget):
         self._ws_handler.sendJsonFactory(
             lambda img_bytes=img_bytes, song_name=song_name, position=position, duration=duration, translation_enabled=translation_enabled, use_yrc=use_yrc, artists=artists, is_playing=is_playing: {
                 'option': 'cover',
-                'image': jsonBase64Bytes(img_bytes),
+                'image': jsonBase64Bytes(img_bytes), # type: ignore
                 'song_name': song_name,
                 'position': position,
                 'duration': duration,

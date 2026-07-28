@@ -675,20 +675,20 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
                     obj['content'],
                     obj['likedCount'],
                     datetime.fromtimestamp(obj['time'] / 1000),
-                    BeReplyComment(
-                        str(obj['beReplied']['beRepliedCommentId']),
+                    [BeReplyComment(
+                        str(rep['beRepliedCommentId']),
                         UserInfo(
-                            obj['beReplied']['user']['encryptUserId'],
-                            obj['beReplied']['user']['avatarUrl'],
-                            obj['beReplied']['user']['nickname'],
+                            rep['user']['encryptUserId'],
+                            rep['user']['avatarUrl'],
+                            rep['user']['nickname'],
                         ),
-                        obj['beReplied']['content'],
-                    ),
+                        rep['content'],
+                    ) for rep in obj['beReplied']] if obj['beReplied'] else None,
                 )
                 for obj in data['comments']
             ],
             data['totalCount'],
-            cursor,
+            str(data.get('cursor', cursor)),
         )
     
     def addComment(self, song_id: str, content: str) -> None:

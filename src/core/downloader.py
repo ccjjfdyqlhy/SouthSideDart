@@ -232,6 +232,7 @@ class TaskManager(QObject):
             self.task(*self.args)
         except Exception as e:
             self._logger.exception('Background task failed')
+            self._logger.exception(e)
             raise e
         finally:
             self.taskFinished.emit()

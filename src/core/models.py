@@ -685,7 +685,7 @@ class Comment:
     likes: int
     date: datetime
 
-    be_replied: BeReplyComment | None
+    be_replied: list[BeReplyComment] | None
 
 
 @dataclass
