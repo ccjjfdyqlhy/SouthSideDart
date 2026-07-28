@@ -565,7 +565,9 @@ if __name__ == '__main__':
         _logger.info('loaded session from config')
 
         if (
-            cfg.login_method == 'cell phone' or cfg.login_method == 'QR code'
+            cfg.login_method == 'cell phone'
+            or cfg.login_method == 'QR code'
+            or cfg.login_method == 'cookie'
         ) and cfg.login_status:
             backend.writeLoginInfo(cfg.login_status)
             _logger.info('wrote login info')

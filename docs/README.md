@@ -113,6 +113,7 @@ Use the account area on the Home page or in the sidebar:
 
 - **Cell Phone** - Enter your phone number and verification code.
 - **QR Code** - Scan the code with the NetEase CloudMusic app and confirm the login.
+- **Cookie** - Paste your `MUSIC_U` cookie value from the browser DevTools (F12 → Application → Cookies → music.163.com).
 
 The app can start with an anonymous session, but recommendations, cloud playlists, and most account features require a NetEase CloudMusic login.
 

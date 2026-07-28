@@ -165,3 +165,29 @@ class QRCodeLoginDialog(MessageBoxBase):
         elif code == 800:
             self.errlabel.setText(tr('dialogs.qr_code_expired_or_not_exist'))
             self.errlabel.show()
+
+
+class CookieLoginDialog(MessageBoxBase):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        title_label = TitleLabel()
+        bindText(title_label, 'dialogs.login_via_cookie')
+        self.viewLayout.addWidget(title_label)
+
+        desc_label = QLabel()
+        bindText(desc_label, 'dialogs.cookie_login_desc')
+        self.viewLayout.addWidget(desc_label)
+
+        self.cookie_input = LineEdit(self)
+        self.cookie_input.setPlaceholderText(tr('dialogs.enter_music_u_cookie'))
+        self.cookie_input.setFixedWidth(parent.width() * 0.7)
+        self.viewLayout.addWidget(self.cookie_input)
+
+        self.errlabel = QLabel()
+        self.errlabel.hide()
+        self.errlabel.setStyleSheet('color: red;')
+        self.viewLayout.addWidget(self.errlabel)
+
+        self.yesButton.setText(tr('dialog.yes'))
+        self.cancelButton.setText(tr('dialog.no'))

@@ -113,6 +113,7 @@ Southside Music 是独立、非商业项目，并非网易云音乐官方客户�
 
 - **Cell Phone / 手机号** - 输入手机号和验证码。
 - **QR Code / 二维码** - 使用网易云音乐 App 扫码并确认登录。
+- **Cookie** - 从浏览器 DevTools 复制 `MUSIC_U` Cookie 值并粘贴（F12 → Application → Cookies → music.163.com）。
 
 匿名会话可以启动应用，但每日推荐、云端歌单和大多数账号功能需要登录网易云音乐。
 

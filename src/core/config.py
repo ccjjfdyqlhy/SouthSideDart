@@ -82,7 +82,7 @@ class Config:
 
     session: str | None = None
     login_status: dict | None = None
-    login_method: Literal['anonymous', 'cell phone', 'QR code'] = 'anonymous'
+    login_method: Literal['anonymous', 'cell phone', 'QR code', 'cookie'] = 'anonymous'
 
     stereo: bool = True
     stereo_haas_index: int = 1

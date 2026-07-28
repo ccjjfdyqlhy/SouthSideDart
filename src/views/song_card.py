@@ -504,7 +504,9 @@ class _SongCardItem(QWidget):
         title_label = SubtitleLabel(storable.name)
         title_label.setWordWrap(True)
         text_layout.addWidget(title_label)
-        artists_label = QLabel('、'.join([obj.name for obj in storable.artists]))
+        artists_label = QLabel(
+            '、'.join(obj.name for obj in storable.artists if obj.name)
+        )
         artists_label.setWordWrap(True)
         text_layout.addWidget(artists_label)
         text_layout.addSpacerItem(
