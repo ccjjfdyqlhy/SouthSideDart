@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 from weakref import WeakSet
 
-import shiboken6
+try:
+    import shiboken6
+except ImportError:  # pragma: no cover - optional Qt dependency
+    shiboken6 = None  # type: ignore[assignment]
 
 from core.config import cfg
 
@@ -26,6 +29,8 @@ _bound_widgets: WeakSet[object] = WeakSet()
 
 
 def _isValidWidget(widget: object) -> bool:
+    if shiboken6 is None:
+        return True
     try:
         return shiboken6.isValid(widget)
     except TypeError:

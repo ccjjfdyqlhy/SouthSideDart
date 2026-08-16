@@ -10,7 +10,12 @@ import tornado.websocket
 import tornado.httpserver
 import tornado.ioloop
 import tornado.web
-from imports import QObject, Signal
+try:
+    from imports import QObject, Signal
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.signals import Signal
+
+    QObject = object
 from services.events import event_bus, COLLECT_DEBUG_INFO, EMIT_DEBUG_INFO
 
 
@@ -87,7 +92,8 @@ class QObjectHandler(QObject):
     ping: float = 0.0  # unit: ms
 
     def __init__(self) -> None:
-        super().__init__()
+        if QObject is not object:
+            super().__init__()
         self._logger = logging.getLogger(__name__)
         self._handlers: set[WebSocketHandler] = set()
         self._current_handler: WebSocketHandler | None = None
@@ -392,8 +398,11 @@ class WebSocketServer(threading.Thread):
         self._stopping = True
 
         def _stop_on_ioloop() -> None:
-            if self.server:
-                self.server.stop()
+            try:
+                if self.server:
+                    self.server.stop()
+            except Exception:
+                self._logger.debug('websocket server stop ignored', exc_info=True)
             if self.handler:
                 self.handler.close()
             if self.ioloop:
@@ -405,7 +414,10 @@ class WebSocketServer(threading.Thread):
             except RuntimeError:
                 _stop_on_ioloop()
         elif self.server:
-            self.server.stop()
+            try:
+                self.server.stop()
+            except Exception:
+                self._logger.debug('websocket server stop ignored', exc_info=True)
         self._logger.debug(str(self.handler))
         self._logger.info('closed websocket')
 

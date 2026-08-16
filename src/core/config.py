@@ -6,7 +6,10 @@ import os
 
 from typing import Any, Literal, cast
 
-import win32crypt
+try:
+    import win32crypt
+except ImportError:  # pragma: no cover - Windows-only optional dependency
+    win32crypt = None  # type: ignore[assignment]
 
 from core.models import SongStorable
 
@@ -18,6 +21,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.json')
 LEGACY_PICKLE_CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config.pkl')
 SECRET_PREFIX = 'win32crypt:'
+PLAINTEXT_PREFIX = 'plain:'
 
 
 def _configToJsonObject() -> dict[str, Any]:
@@ -156,19 +160,39 @@ cfg = Config.instance()
 def encryptSecret(value: str) -> str:
     if not value:
         return ''
-    encrypted = win32crypt.CryptProtectData(
-        value.encode('utf-8'),
-        'SouthsideMusic',
-        None,
-        None,
-        None,
-        0,
-    )
-    return f'{SECRET_PREFIX}{base64.b64encode(encrypted).decode("ascii")}'
+    if win32crypt is not None:
+        try:
+            encrypted = win32crypt.CryptProtectData(
+                value.encode('utf-8'),
+                'SouthsideMusic',
+                None,
+                None,
+                None,
+                0,
+            )
+            return f'{SECRET_PREFIX}{base64.b64encode(encrypted).decode("ascii")}'
+        except Exception as e:
+            _logger.exception(e)
+    # Cross-platform fallback: base64 only, not encrypted. Users who need real
+    # protection on non-Windows platforms should use OS keyring integration.
+    return f'{PLAINTEXT_PREFIX}{base64.b64encode(value.encode("utf-8")).decode("ascii")}'
 
 
 def decryptSecret(value: str) -> str:
-    if not value or not value.startswith(SECRET_PREFIX):
+    if not value:
+        return ''
+    if value.startswith(PLAINTEXT_PREFIX):
+        try:
+            return base64.b64decode(value[len(PLAINTEXT_PREFIX) :].encode('ascii')).decode(
+                'utf-8'
+            )
+        except Exception as e:
+            _logger.exception(e)
+            return ''
+    if not value.startswith(SECRET_PREFIX):
+        return ''
+    if win32crypt is None:
+        _logger.warning('cannot decrypt win32crypt secret on this platform')
         return ''
     try:
         encrypted = base64.b64decode(value[len(SECRET_PREFIX) :].encode('ascii'))

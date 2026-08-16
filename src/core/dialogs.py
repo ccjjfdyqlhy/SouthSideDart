@@ -1,18 +1,37 @@
 import io
 
 from core.backend import getBackend
-from imports import QLabel, QListWidget, QWidget, bindText, tr
-from imports import QImage, QPixmap
 import qrcode
-from qfluentwidgets import (
-    LineEdit,
-    MessageBoxBase,
-    PrimaryPushButton,
-    SubtitleLabel,
-    TextEdit,
-    TitleLabel,
-)
-from views.list_widget import SListWidget
+
+try:
+    from imports import QLabel, QListWidget, QWidget, bindText, tr
+    from imports import QImage, QPixmap
+    from qfluentwidgets import (
+        LineEdit,
+        MessageBoxBase,
+        PrimaryPushButton,
+        SubtitleLabel,
+        TextEdit,
+        TitleLabel,
+    )
+    from views.list_widget import SListWidget
+except ImportError:  # pragma: no cover - Qt-free backend path
+    class _Dummy:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def __getattr__(self, name: str) -> object:
+            return lambda *args: None
+
+    QLabel = QListWidget = QWidget = QImage = QPixmap = LineEdit = MessageBoxBase = (
+        PrimaryPushButton
+    ) = SubtitleLabel = TextEdit = TitleLabel = SListWidget = _Dummy
+
+    def bindText(*args: object, **kwargs: object) -> None:
+        return None
+
+    def tr(*args: object, **kwargs: object) -> str:
+        return ''
 
 
 class LineInputDialog(MessageBoxBase):

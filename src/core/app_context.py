@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 from backend.core_context import CoreContext
 from backend.scheduler import TaskScheduler
-from imports import QObject, Signal
+try:
+    from imports import QObject, Signal
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.signals import Signal
+
+    QObject = object  # type: ignore[assignment,misc]
 
 if TYPE_CHECKING:
     from core.audio_player import AudioPlayer

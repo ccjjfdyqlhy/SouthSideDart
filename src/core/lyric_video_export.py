@@ -42,22 +42,21 @@ try:
         QPainter,
         QRect,
     )
-except ImportError:
-    from audio_player import PatchedAudioSegment as AudioSegment_
-    from color import mixColor
-    from lyrics import LRCLyricParser, LyricInfo, YRCLyricInfo, YRCLyricParser
-    from imports import (
-        QApplication,
-        QBuffer,
-        QColor,
-        QFont,
-        QFontDatabase,
-        QFontMetricsF,
-        QIODevice,
-        QImage,
-        QPainter,
-        QRect,
-    )
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from core.audio_player import PatchedAudioSegment as AudioSegment_
+    from core.color import mixColor
+    from core.lyrics import LRCLyricParser, LyricInfo, YRCLyricInfo, YRCLyricParser
+
+    class _DummyQt:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def __getattr__(self, name: str) -> object:
+            return lambda *args: None
+
+    QApplication = QBuffer = QColor = QFont = QFontDatabase = QFontMetricsF = (
+        QIODevice
+    ) = QImage = QPainter = QRect = _DummyQt
 
 
 Alignment = Literal['left', 'center', 'right']

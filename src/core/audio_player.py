@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import array
-import ctypes
 from dataclasses import dataclass
 import io
 import json
@@ -16,22 +15,29 @@ import numpy as np
 import psutil
 import sounddevice as sd
 from pathlib import Path
-from imports import (
-    DB_CHANGED,
-    QObject,
-    QEasingCurve,
-    QPropertyAnimation,
-    QTimer,
-    Signal,
-    event_bus,
-    Property,
-)
+try:
+    from imports import (
+        DB_CHANGED,
+        MessageBox,
+        Property,
+        QEasingCurve,
+        QObject,
+        QPropertyAnimation,
+        QTimer,
+        Signal,
+        event_bus,
+    )
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.shim import MessageBox, Property, QEasingCurve, QPropertyAnimation, QTimer
+    from backend.signals import Signal
+    from services.events import DB_CHANGED, event_bus
+
+    QObject = object
 from services.events.events import COLLECT_DEBUG_INFO, EMIT_DEBUG_INFO
 from typing import Any, Callable, Optional, override
 import threading
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import resample_poly
-from imports import MessageBox
 from core.config import cfg
 
 from pydub.utils import fsdecode, audioop, get_prober_name, mediainfo_json
@@ -60,32 +66,11 @@ _PRODUCER_MIN_REFILL_LEAD = 2.0
 _PRODUCER_YIELD_BLOCKS = 32
 
 
-class _MemoryStatus(ctypes.Structure):
-    _fields_ = [
-        ('dwLength', ctypes.c_ulong),
-        ('dwMemoryLoad', ctypes.c_ulong),
-        ('ullTotalPhys', ctypes.c_ulonglong),
-        ('ullAvailPhys', ctypes.c_ulonglong),
-        ('ullTotalPageFile', ctypes.c_ulonglong),
-        ('ullAvailPageFile', ctypes.c_ulonglong),
-        ('ullTotalVirtual', ctypes.c_ulonglong),
-        ('ullAvailVirtual', ctypes.c_ulonglong),
-        ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
-    ]
-
-
 def _getMemoryLoad() -> float:
-    windll = getattr(ctypes, 'windll', None)
-    if windll is None:
-        return 0.0
     try:
-        status = _MemoryStatus()
-        status.dwLength = ctypes.sizeof(_MemoryStatus)
-        if windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return float(status.dwMemoryLoad)
+        return float(psutil.virtual_memory().percent)
     except Exception:
-        pass
-    return 0.0
+        return 0.0
 
 
 def _getCpuLoad() -> float:
@@ -362,8 +347,14 @@ class AudioPlayer(QObject):
     positionChanged = Signal(float)
     fftDataReady = Signal(np.ndarray, np.ndarray)  # (freqs, magnitudes)
 
-    def __init__(self, parent=None, devices: list[DevicesInfo] | None = None):
-        super().__init__(parent)
+    def __init__(
+        self,
+        parent=None,
+        devices: list[DevicesInfo] | None = None,
+        headless: bool = False,
+    ):
+        if QObject is not object:
+            super().__init__(parent)
         self._logger = logging.getLogger(__name__)
 
         self.samples: np.ndarray = np.zeros((0, 1), dtype=np.float32)
@@ -432,17 +423,22 @@ class AudioPlayer(QObject):
         self._lock = threading.RLock()
         devices = devices if devices is not None else getAudioDevices()
         if len(devices) == 0:
-            self._logger.error('no devices found')
-            dialog = MessageBox(
-                'Error ',
-                'No any device can be used to play audio on your computer!',
-                None,
-            )
-            dialog.cancelButton.hide()
-            dialog.yesButton.setText('OK')
-            dialog.exec()
-            sys.exit(1)
-        self._device_id: int = devices[0].index
+            if headless:
+                self._logger.warning('no audio device found; running headless')
+                self._device_id: int | None = None
+            else:
+                self._logger.error('no devices found')
+                dialog = MessageBox(
+                    'Error ',
+                    'No any device can be used to play audio on your computer!',
+                    None,
+                )
+                dialog.cancelButton.hide()
+                dialog.yesButton.setText('OK')
+                dialog.exec()
+                sys.exit(1)
+        else:
+            self._device_id = devices[0].index
         self.fft_queue = Queue(maxsize=8)
         self.fft_thread_running = True
         self.fft_thread = threading.Thread(target=self._fft_worker, daemon=True)

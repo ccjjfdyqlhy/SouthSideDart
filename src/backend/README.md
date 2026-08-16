@@ -9,13 +9,38 @@ This package is the first step toward a UI-independent application core.
 - `CoreBackendService` — initializes config, NetEase API, favorites, audio
   player, lyric parsers, playback manager, LLM and WebSocket bridge without
   creating any view/page widget.
-- `standalone.py` — a headless `QCoreApplication` entrypoint that serves a
-  simple newline-delimited JSON protocol over stdin/stdout.
+- `Signal`, `QTimer`, `QPropertyAnimation`, `Property`, `MessageBox` — minimal
+  Qt-free shims so core modules can run without PySide6.
+- `standalone.py` — a headless entrypoint that has no dependency on PySide6
+  (uses a plain event loop / threading) and can serve a newline-delimited JSON
+  protocol over stdin/stdout.
+- `scripts/check_backend_no_qt.py` — verifies the backend core import chain
+  works without PySide6 installed.
 
-## What is still coupled to Qt
+## Quick start
 
-The core modules themselves still use PySide6 `QObject`/`QTimer`/`Signal`
-(`audio_player.py`, `playing_manager.py`, `ws_server.py`, `downloader.py`,
-`event_bus.py`, etc.). This package currently removes the *UI widgets/views*
-dependency, not the Qt runtime dependency. Removing Qt from those core modules
-is the next major step before a non-Qt UI backend can be used.
+```bash
+python scripts/check_backend_no_qt.py
+
+printf '{"id":1,"method":"ping"}\n{"id":2,"method":"shutdown"}\n' |
+  python src/backend/standalone.py
+```
+
+## Status
+
+Every module under `src/core/` can now be imported without PySide6 installed.
+`scripts/check_backend_no_qt.py` imports the full core module list and verifies
+this.
+
+- Core audio/playback/websocket/download modules use the small Qt-free shims in
+  this package when PySide6 is absent, and automatically use real PySide6 when
+  it is available (so the desktop UI keeps native Qt behavior).
+- The desktop UI still uses real PySide6 widgets; the backend can run headless
+  with no Qt at all.
+
+## Remaining Qt when calling UI-only helpers
+
+Some core modules (dialogs, LLM tool UI, lyric-video Qt renderer, icon helper)
+are import-safe without Qt, but their UI-facing functions still require PySide6
+when actually called. Those functions are not part of the standalone backend
+service and will be rewritten/moved when the UI is replaced.

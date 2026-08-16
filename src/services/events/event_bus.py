@@ -5,8 +5,10 @@ import threading
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Callable
 
-import shiboken6
-
+try:
+    import shiboken6
+except ImportError:  # pragma: no cover - Qt-free backend path
+    shiboken6 = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from views.launch_window import LaunchWindow
@@ -16,8 +18,11 @@ Listener = Callable[..., Any]
 
 
 def _isValidListener(listener: Listener) -> bool:
+    """Return whether a listener can be called without Qt introspection."""
     owner = getattr(listener, '__self__', None)
     if owner is None:
+        return True
+    if shiboken6 is None:
         return True
     try:
         return shiboken6.isValid(owner)

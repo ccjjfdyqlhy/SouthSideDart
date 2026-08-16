@@ -7,14 +7,18 @@ import threading
 from typing import Callable, Dict, Optional
 from core.config import cfg
 
-from imports import (
+try:
+    from imports import QObject, Signal
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.signals import Signal
+
+    QObject = object
+from services.events import (
     START_INTER_LOADING,
     START_PROGRESS_LOADING,
     STOP_INTER_LOADING,
     STOP_PROGRESS_LOADING,
     UPDATE_LOADING_PROGRESS,
-    QObject,
-    Signal,
     event_bus,
 )
 import requests
@@ -29,6 +33,10 @@ class DownloadingManager(QObject):
     MAX_CHUNK_THREADS = int(cfg.download_concurrent_threads)
     MIN_CHUNK_SIZE = 4096
 
+    def deleteLater(self) -> None:
+        """No-op for Qt compatibility in the non-Qt backend."""
+        return
+
     def __init__(
         self,
         parent=None,
@@ -36,7 +44,8 @@ class DownloadingManager(QObject):
         headers: Optional[Dict] = None,
         data: Optional[Dict] = None,
     ):
-        super().__init__(parent)
+        if QObject is not object:
+            super().__init__(parent)
         self.url = url
         self.headers = headers.copy() if headers else {}
         self.data = data
@@ -211,13 +220,18 @@ class _DownloadWorker:
 class TaskManager(QObject):
     taskFinished = Signal()
 
+    def deleteLater(self) -> None:
+        """No-op for Qt compatibility in the non-Qt backend."""
+        return
+
     def __init__(
         self,
         task: Callable,
         args: tuple,
         parent=None,
     ):
-        super().__init__(parent)
+        if QObject is not object:
+            super().__init__(parent)
         self._logger = logging.getLogger(__name__)
         self.task = task
         self.args = args

@@ -3,7 +3,17 @@ from enum import Enum
 from typing import Any, Literal, cast
 
 from core import theme as themeModule
-from qfluentwidgets import FluentIconBase, Theme
+try:
+    from qfluentwidgets import FluentIconBase, Theme
+except ImportError:  # pragma: no cover - Qt-free backend path
+    class FluentIconBase:
+        pass
+
+    class Theme:
+        AUTO = 'auto'
+        DARK = 'dark'
+        LIGHT = 'light'
+
 from os import makedirs
 
 makedirs('data', exist_ok=True)

@@ -67,7 +67,11 @@ from services.events.events import (
     STOP_PROGRESS_LOADING,
     UPDATE_LOADING_PROGRESS,
 )
-from imports import QTimer, tr
+try:
+    from imports import QTimer
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.shim import QTimer
+from core.i18n import tr
 
 if TYPE_CHECKING:
     from core.app_context import AppContext
@@ -152,7 +156,9 @@ class PlayingManager:
 
         if ctx is not None:
             self._bindEvents()
-            ctx.app.aboutToQuit.connect(self.shutdownWorkers)
+            app = getattr(ctx, 'app', None)
+            if app is not None and hasattr(app, 'aboutToQuit'):
+                app.aboutToQuit.connect(self.shutdownWorkers)
             threading.Thread(
                 target=self._warmFreeThreadedWorker,
                 daemon=True,

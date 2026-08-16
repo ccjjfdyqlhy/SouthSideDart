@@ -1,7 +1,12 @@
 from functools import lru_cache
 import threading
 
-from imports import QLayout, QListWidget, QWidget
+try:
+    from imports import QLayout, QListWidget, QWidget
+except ImportError:  # pragma: no cover - Qt-free backend path
+    QLayout = object  # type: ignore[assignment,misc]
+    QListWidget = object  # type: ignore[assignment,misc]
+    QWidget = object  # type: ignore[assignment,misc]
 
 _lock = threading.Lock()
 

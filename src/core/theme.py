@@ -1,5 +1,9 @@
-from darkdetect import isDark as isDarkDarkdetect
-import darkdetect
+try:
+    from darkdetect import isDark as isDarkDarkdetect
+    import darkdetect
+except ImportError:  # pragma: no cover - optional platform theme detection
+    isDarkDarkdetect = lambda: False
+    darkdetect = None  # type: ignore[assignment]
 
 _is_dark = isDarkDarkdetect()
 

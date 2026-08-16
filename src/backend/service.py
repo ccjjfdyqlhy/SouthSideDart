@@ -37,14 +37,9 @@ class CoreBackendService:
     ) -> CoreContext:
         """Create and populate the core context.
 
-        This is intentionally called after any Qt application object exists so
-        that core components which use ``QTimer``/``aboutToQuit`` work both in
-        the desktop UI (``QApplication``) and in a headless backend
-        (``QCoreApplication``).
-
-        When a UI context (``AppContext``) is passed to the constructor, the
-        service populates that same context so UI code and core code share one
-        object graph.
+        ``app`` is optional. The desktop UI passes its ``QApplication`` so
+        Qt-owned components can connect to ``aboutToQuit``; a headless backend
+        can pass ``None`` and the core will use the Qt-free shims.
         """
         ctx = self.context
         ctx.app = app
@@ -101,7 +96,7 @@ class CoreBackendService:
 
         _progress('Phase 2 (initialize components...)')
         ctx.config = Config.instance()
-        ctx.player = AudioPlayer()
+        ctx.player = AudioPlayer(headless=app is None)
         ctx.mgr = LRCLyricParser()
         ctx.transmgr = LRCLyricParser()
         ctx.ymgr = YRCLyricParser()

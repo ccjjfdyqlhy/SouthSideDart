@@ -10,10 +10,16 @@ same functionality over a transport so the UI backend can be replaced.
 from .core_context import CoreContext
 from .scheduler import TaskScheduler, ThreadTaskScheduler
 from .service import CoreBackendService
+from .shim import QPropertyAnimation, QTimer, Property
+from .signals import Signal
 
 __all__ = [
     'CoreContext',
     'CoreBackendService',
+    'QPropertyAnimation',
+    'QTimer',
+    'Property',
+    'Signal',
     'TaskScheduler',
     'ThreadTaskScheduler',
 ]

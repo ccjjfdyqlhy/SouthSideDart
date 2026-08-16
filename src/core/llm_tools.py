@@ -7,7 +7,6 @@ import queue
 import re
 from typing import Any, Callable
 
-from core.app_context import AppContext
 from core.backend import getBackend
 from core.config import cfg, encryptSecret, saveConfig
 from core.favorites import favorites_manager
@@ -20,9 +19,19 @@ from core.models import (
     SongInfo,
     SongStorable,
 )
-from imports import QApplication, QCheckBox, QComboBox, QThread, QWidget, event_bus, tr
+
+try:
+    from core.app_context import AppContext
+    from imports import QApplication, QCheckBox, QComboBox, QThread, QWidget, event_bus, tr
+    from views.number_viewer import SettableNumberViewer
+except ImportError:  # pragma: no cover - Qt-free backend path
+    AppContext = object  # type: ignore[assignment,misc]
+    QApplication = QCheckBox = QComboBox = QThread = QWidget = object  # type: ignore[assignment,misc]
+    SettableNumberViewer = object  # type: ignore[assignment,misc]
+    from core.i18n import tr
+
+    from services.events import event_bus
 from services.events.events import FAVORITES_CHANGED, MWINDOW_REFRESH_FOLDERS
-from views.number_viewer import SettableNumberViewer
 
 
 ToolCallback = Callable[[str, str, str], None]

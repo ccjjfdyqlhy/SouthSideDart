@@ -1,9 +1,20 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.app_context import AppContext
 from services.events import event_bus
-from imports import QObject, QTimer, QLabel
+try:
+    from imports import QObject, QTimer, QLabel
+except ImportError:  # pragma: no cover - Qt-free backend path
+    from backend.shim import QTimer
+
+    QObject = object
+
+    class QLabel:  # type: ignore[no-redef]
+        pass
+
 from services.events.events import COLLECT_DEBUG_INFO, EMIT_DEBUG_INFO
 import logging
 
@@ -12,7 +23,8 @@ _logger = logging.getLogger(__name__)
 
 class Debugging(QObject):
     def __init__(self, ctx: AppContext):
-        super().__init__()
+        if QObject is not object:
+            super().__init__()
         self.ctx = ctx
 
         self.infos: list[

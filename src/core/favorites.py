@@ -18,10 +18,7 @@ from core.models import (
     MUSIC_DATA_DIR,
     SongStorable,
 )
-from imports import IMAGE_ASSET_PERSISTED, event_bus
-from qfluentwidgets import MessageBoxBase, SubtitleLabel
-from views.list_widget import SListWidget
-from imports import QHBoxLayout, QLabel, QListWidget, QVBoxLayout
+from services.events import IMAGE_ASSET_PERSISTED, event_bus
 
 _logger = logging.getLogger(__name__)
 
@@ -288,73 +285,3 @@ def _write_raw(data: list[dict]) -> None:
         os.chmod(_FAVORITES_PATH, stat.S_IWRITE)
     with open(_FAVORITES_PATH, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-
-
-class FavoriteSelectionDialog(MessageBoxBase):
-    def __init__(self, parent, favs):
-        super().__init__(parent)
-        self.title_label = SubtitleLabel('Add Songs from Favorites')
-        self.viewLayout.addWidget(self.title_label)
-
-        content_layout = QHBoxLayout()
-
-        folder_layout = QVBoxLayout()
-        folder_layout.addWidget(QLabel('Folders:'))
-        self.folder_list = SListWidget()
-        self.folder_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        folder_layout.addWidget(self.folder_list)
-
-        song_layout = QVBoxLayout()
-        song_layout.addWidget(QLabel('Songs:'))
-        self.song_list = SListWidget()
-        self.song_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        song_layout.addWidget(self.song_list)
-
-        content_layout.addLayout(folder_layout)
-        content_layout.addLayout(song_layout)
-        self.viewLayout.addLayout(content_layout)
-
-        self.loadFolders(favs)
-        self.folder_list.itemClicked.connect(self.onFolderSelected)
-
-    def loadFolders(self, favs):
-        self.folder_list.clear()
-        self.song_list.clear()
-        for folder in favs:
-            self.folder_list.addItem(folder.folder_name)
-
-    def onFolderSelected(self, item, favs):
-        self.song_list.clear()
-        folder_name = item.text()
-        for folder in favs:
-            if folder.folder_name == folder_name:
-                for song in folder.songs:
-                    self.song_list.addItem(song.name)
-                break
-
-    def getSelectedSong(self, favs):
-        folder_item = self.folder_list.currentItem()
-        song_item = self.song_list.currentItem()
-
-        if not folder_item or not song_item:
-            return None
-
-        folder_name = folder_item.text()
-        song_name = song_item.text()
-
-        for folder in favs:
-            if folder.folder_name == folder_name:
-                for song in folder.songs:
-                    if song.name == song_name:
-                        return song
-
-        return None
-
-
-def getFavoriteSong(mwindow, favs) -> SongStorable | None:
-    box = FavoriteSelectionDialog(mwindow, favs)
-    reply = box.exec()
-    selected = box.getSelectedSong(favs)
-    if reply and selected:
-        return selected
-    return None
