@@ -4,8 +4,9 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Callable, cast
 
+from backend.core_context import CoreContext
+from backend.scheduler import TaskScheduler
 from imports import QObject, Signal
-from views.comments_page import CommentsPage
 
 if TYPE_CHECKING:
     from core.audio_player import AudioPlayer
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from core.ws_server import WebSocketServer, QObjectHandler
     from PySide6.QtWidgets import QApplication
     from services.services import EventsServices
+    from views.comments_page import CommentsPage
     from views.desktop_lyrics import DesktopLyricsPage
     from views.dependences_window import DependencesWindow
     from views.favorites_page import FavoritesPage
@@ -67,30 +69,21 @@ class _ScheduledTaskRunner(QObject):
                 raise e
 
 
-class AppContext:
-    def __init__(self) -> None:
-        self.app: QApplication = cast('QApplication', None)
-        self.player: AudioPlayer = cast('AudioPlayer', None)
-        self.config: Config = cast('Config', None)
-        self.mgr: LRCLyricParser = cast('LRCLyricParser', None)
-        self.transmgr: LRCLyricParser = cast('LRCLyricParser', None)
-        self.ymgr: YRCLyricParser = cast('YRCLyricParser', None)
-        self.ws_server: WebSocketServer = cast('WebSocketServer', None)
-        self.ws_handler: QObjectHandler = cast('QObjectHandler', None)
-        self.harmony_font_family: str = ''
-        self.favs: list[LocalFolderInfo | CloudFolderInfo] = []
-        self.lock: threading.Lock = threading.Lock()
-        self._scheduled_task_runner = _ScheduledTaskRunner()
-        self.playing_manager: PlayingManager = cast('PlayingManager', None)
-        self.llm: LLM = cast('LLM', None)
-        self.llm_song_handles: dict[str, SearchSongInfo | SongStorable] = {}
-        self.llm_folder_handles: dict[str, LocalFolderInfo | CloudFolderInfo] = {}
-        self.llm_cloud_search_query: str = ''
-        self.llm_cloud_search_offset: int = 0
-        self.dependences_available: bool = True
-        self.debugging: bool = False
-        self.process_pids: dict[str, int] = {}
+class AppContext(CoreContext):
+    """Desktop UI context: core state plus all PySide6 page/widget references."""
 
+    def __init__(self, task_scheduler: TaskScheduler | None = None) -> None:
+        super().__init__(task_scheduler=task_scheduler)
+        fallback_scheduler = self._task_scheduler
+        self._scheduled_task_runner = _ScheduledTaskRunner()
+        self._task_scheduler = self._scheduled_task_runner
+        close = getattr(fallback_scheduler, 'close', None)
+        if close is not None:
+            close()
+
+        # UI-only state
+        self.app: QApplication = cast('QApplication', None)
+        self.harmony_font_family: str = ''
         self.launch_window: LaunchWindow = cast('LaunchWindow', None)
         self.main_window: MainWindow = cast('MainWindow', None)
         self.playing_page: PlayingPage = cast('PlayingPage', None)
@@ -113,4 +106,4 @@ class AppContext:
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        self._scheduled_task_runner.addTask(task, *args, **kwargs)
+        self._task_scheduler.addTask(task, *args, **kwargs)

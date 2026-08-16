@@ -33,7 +33,6 @@ from views.home_page import HomePage
 from views.library_page import LibraryPage
 from views.comments_page import CommentsPage
 
-from core.lyrics import LRCLyricParser, YRCLyricParser
 from views.dependences_window import DependencesWindow
 import logging
 
@@ -51,15 +50,10 @@ import imports as _ims
 from qfluentwidgets import setTheme, Theme
 import shiboken6
 
-from core.config import loadConfig, saveConfig, Config
+from core.config import saveConfig
 from core.cache_cleanup import DEFAULT_DATA_CLEANUP_INTERVAL_SECONDS, cleanupDataFolder
-from core.favorites import favorites_manager, saveFavorites
+from core.favorites import saveFavorites
 from core.icons import refreshBoundIcons
-from core.llm import LLM
-from core.audio_player import AudioPlayer
-from core.backend import initBackend
-from core.netease_backend import NeteaseCloudMusicBackend
-from core.playing_manager import PlayingManager
 from core import theme as themeModule
 from core.ws_server import ws_server, ws_handler
 from views.log_handler import LogHandler, hijackStreams
@@ -468,17 +462,29 @@ _ims.event_bus.subscribe(
 
 if __name__ == '__main__':
     assert launchwindow is not None
-    launchwindow.subtitle('Phase 1 (start core...)')
 
-    backend = NeteaseCloudMusicBackend()
-    initBackend(backend)
+    from backend.service import CoreBackendService
+    from core.app_context import AppContext
 
-    launchwindow.subtitle('Writting login information...')
-    cfg = Config.instance()
-    if cfg.login_status and not backend.currentSessionIsAnonymous():
-        backend.writeLoginInfo(cfg.login_status)
-    else:
-        cfg.login_status = backend.getCurrentLoginStatus()
+    launchwindow.subtitle('Loading fonts...')
+    harmony_font_family = _ims.QFontDatabase.applicationFontFamilies(
+        _ims.QFontDatabase.addApplicationFont('fonts/HARMONYOS_SANS_SC_REGULAR.ttf')
+    )[0]
+
+    launchwindow.subtitle('Initializing services...')
+
+    ctx = AppContext()
+    ctx.harmony_font_family = harmony_font_family
+    ctx.launch_window = launchwindow
+    ctx.lock = lock
+
+    core_service = CoreBackendService(context=ctx)
+    core_service.initialize(app=app, progress=launchwindow.subtitle)
+
+    from core.backend import getBackend
+
+    backend = getBackend()
+    cfg = ctx.config
 
     def _themeChanged(theme: str):
         def _updateTheme():
@@ -540,58 +546,8 @@ if __name__ == '__main__':
 
     app.processEvents()
 
-    loadConfig()
-    launchwindow.subtitle('Loading config...')
-
-    launchwindow.subtitle('Loading fonts...')
-    harmony_font_family = _ims.QFontDatabase.applicationFontFamilies(
-        _ims.QFontDatabase.addApplicationFont('fonts/HARMONYOS_SANS_SC_REGULAR.ttf')
-    )[0]
-
-    launchwindow.subtitle('Initializing services...')
-
-    launchwindow.subtitle('Loading favorites...')
-    favorites_manager.load()
-
-    launchwindow.subtitle('Logging in...')
-    if cfg.session is None:
-        snapshot = backend.loginViaAnonymousAccount()
-        cfg.session = snapshot.session
-        cfg.login_status = snapshot.login_status
-        _logger.info('logged into generated anonymous account')
-    else:
-        backend.loadSession(cfg.session)
-        _logger.info('loaded session from config')
-
-        if (
-            cfg.login_method == 'cell phone'
-            or cfg.login_method == 'QR code'
-            or cfg.login_method == 'cookie'
-        ) and cfg.login_status:
-            backend.writeLoginInfo(cfg.login_status)
-            _logger.info('wrote login info')
-
-    backend.setRandomDeviceId()
-
     launchwindow.clear()
     launchwindow.subtitle('Phase 2 (initialize components...)')
-
-    from core.app_context import AppContext
-
-    ctx = AppContext()
-    ctx.app = app
-    ctx.player = AudioPlayer()
-    ctx.config = Config.instance()
-    ctx.mgr = LRCLyricParser()
-    ctx.transmgr = LRCLyricParser()
-    ctx.ymgr = YRCLyricParser()
-    ctx.ws_server = ws_server
-    ctx.ws_handler = ws_handler
-    ctx.harmony_font_family = harmony_font_family
-    ctx.lock = lock
-    ctx.launch_window = launchwindow
-    ctx.llm = LLM()
-    ctx.playing_manager = PlayingManager(ctx)
 
     launchwindow.subtitle('Preparing (checking dependences...)')
     depwindow = DependencesWindow(ctx)
