@@ -1,22 +1,27 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart';
 import '../models/models.dart';
+import '../services/backend_store.dart';
 import '../state/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/folder_card.dart';
 import '../widgets/song_card.dart';
 
 /// 搜索页:类型切换(歌曲/歌单)+ 结果列表。
+/// 连接内核时走真实搜索,否则回退 mock 数据。
 class SearchPage extends StatefulWidget {
   final PlayerState player;
   final String keyword;
+  final BackendStore? store;
   final ValueChanged<Folder> onFolderTap;
 
   const SearchPage({
     super.key,
     required this.player,
     required this.keyword,
+    this.store,
     required this.onFolderTap,
   });
 
@@ -26,21 +31,75 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   String _type = SearchType.songs;
+  List<Song> _songs = [];
+  List<Folder> _folders = [];
+  bool _loading = false;
+  bool _backendUnavailable = false;
+  Timer? _debounce;
 
   @override
   void didUpdateWidget(covariant SearchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.keyword != widget.keyword) {
-      setState(() {});
+      _scheduleSearch();
     }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleSearch() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), _performSearch);
+  }
+
+  Future<void> _performSearch() async {
+    final keyword = widget.keyword.trim();
+    if (keyword.isEmpty) {
+      setState(() {
+        _songs = [];
+        _folders = [];
+        _loading = false;
+      });
+      return;
+    }
+    setState(() => _loading = true);
+
+    final store = widget.store;
+    final connected = store != null && store.client.isConnected;
+    if (connected) {
+      List<Song>? songs;
+      List<Folder>? folders;
+      if (_type == SearchType.songs) {
+        songs = await store.searchSongs(keyword);
+      } else {
+        folders = await store.searchFolders(keyword);
+      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _backendUnavailable = false;
+        _songs = songs ?? const [];
+        _folders = folders ?? const [];
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _backendUnavailable = true;
+      _songs = const [];
+      _folders = const [];
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final isSongs = _type == SearchType.songs;
-    final songs = isSongs ? mockSearchSongs(widget.keyword) : <Song>[];
-    final folders = !isSongs ? mockSearchFolders(widget.keyword) : <Folder>[];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -52,19 +111,25 @@ class _SearchPageState extends State<SearchPage> {
               _TypeChip(
                 label: '歌曲',
                 selected: isSongs,
-                onTap: () => setState(() => _type = SearchType.songs),
+                onTap: () {
+                  setState(() => _type = SearchType.songs);
+                  _scheduleSearch();
+                },
               ),
               const SizedBox(width: 8),
               _TypeChip(
                 label: '歌单',
                 selected: !isSongs,
-                onTap: () => setState(() => _type = SearchType.playlists),
+                onTap: () {
+                  setState(() => _type = SearchType.playlists);
+                  _scheduleSearch();
+                },
               ),
             ],
           ),
         ),
         Expanded(
-          child: widget.keyword.isEmpty
+          child: widget.keyword.trim().isEmpty
               ? Center(
                   child: Text(
                     '输入关键词开始搜索',
@@ -74,9 +139,27 @@ class _SearchPageState extends State<SearchPage> {
                     ),
                   ),
                 )
-              : isSongs
-                  ? _SongResultList(songs: songs, player: widget.player)
-                  : _FolderResultGrid(folders: folders, onFolderTap: widget.onFolderTap),
+              : _backendUnavailable
+                  ? Center(
+                      child: Text(
+                        '未连接内核,无法搜索',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: colors.textTertiary,
+                        ),
+                      ),
+                    )
+                  : _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : isSongs
+                          ? _SongResultList(
+                              songs: _songs, player: widget.player)
+                          : _FolderResultGrid(
+                              folders: _folders,
+                              onFolderTap: widget.onFolderTap,
+                            ),
         ),
       ],
     );
@@ -136,8 +219,8 @@ class _SongResultList extends StatelessWidget {
         return SongCard(
           song: song,
           onPlay: () => player.playSong(song),
-          onInsert: () {},
-          onFavorite: () {},
+          onInsert: () => player.queueSong(song),
+          onFavorite: () => player.likeSong(song),
         );
       },
       separatorBuilder: (_, _) => const SizedBox(height: 2),

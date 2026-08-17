@@ -11,19 +11,27 @@ import '../widgets/song_card.dart';
 /// 首页:标题 + 账号问候 + 模式卡 + 推荐歌单 + 推荐歌曲。
 class HomePage extends StatelessWidget {
   final PlayerState player;
+  final List<Folder> folders;
+  final List<Song> songs;
+
+  /// 模式卡点击回调(heart/fm/radar/similar),连接内核时触发真实播放模式。
+  final ValueChanged<String>? onModeTap;
   final ValueChanged<Folder> onFolderTap;
 
   const HomePage({
     super.key,
     required this.player,
+    this.folders = const [],
+    this.songs = const [],
+    this.onModeTap,
     required this.onFolderTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final folders = mockFolders();
-    final songs = mockRecommendedSongs();
+    final folderList = folders;
+    final songList = songs;
 
     return CustomScrollView(
       slivers: [
@@ -60,7 +68,10 @@ class HomePage extends StatelessWidget {
                   children: [
                     for (final card in mockModeCards) ...[
                       Expanded(
-                        child: _ModeCard(card: card),
+                        child: _ModeCard(
+                          card: card,
+                          onTap: () => onModeTap?.call(card.icon),
+                        ),
                       ),
                       if (card != mockModeCards.last) const SizedBox(width: 12),
                     ],
@@ -76,70 +87,111 @@ class HomePage extends StatelessWidget {
             child: SectionHeader(
               title: '推荐歌单',
               trailing: Text(
-                '${folders.length}',
+                '${folderList.length}',
                 style: TextStyle(fontSize: 15, color: colors.textTertiary),
               ),
             ),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          sliver: SliverLayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.crossAxisExtent;
-              final cardW = ((width - 36) / 4).clamp(120.0, 260.0);
-              return SliverGrid(
-                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: cardW + 16,
-                  mainAxisSpacing: 20,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: cardW / (cardW + 52),
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final f = folders[index];
-                    return FolderCard(
-                      folder: f,
-                      width: cardW,
-                      onTap: () => onFolderTap(f),
-                    );
-                  },
-                  childCount: folders.length,
-                ),
-              );
-            },
+        if (folderList.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+              child: _EmptyHint(text: '暂无推荐歌单,请连接内核或稍后重试'),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.crossAxisExtent;
+                final cardW = ((width - 36) / 4).clamp(120.0, 260.0);
+                return SliverGrid(
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: cardW + 16,
+                    mainAxisSpacing: 20,
+                    crossAxisSpacing: 16,
+                    childAspectRatio: cardW / (cardW + 52),
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final f = folderList[index];
+                      return FolderCard(
+                        folder: f,
+                        width: cardW,
+                        onTap: () => onFolderTap(f),
+                      );
+                    },
+                    childCount: folderList.length,
+                  ),
+                );
+              },
+            ),
           ),
-        ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
           sliver: SliverToBoxAdapter(
             child: SectionHeader(
               title: '推荐歌曲',
               trailing: Text(
-                '${songs.length}',
+                '${songList.length}',
                 style: TextStyle(fontSize: 15, color: colors.textTertiary),
               ),
             ),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          sliver: SliverList.separated(
-            itemCount: songs.length,
-            itemBuilder: (context, index) {
-              final song = songs[index];
-              return SongCard(
-                song: song,
-                onPlay: () => player.playSong(song),
-                onInsert: () {},
-                onFavorite: () {},
-              );
-            },
-            separatorBuilder: (_, _) => const SizedBox(height: 2),
+        if (songList.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+              child: _EmptyHint(text: '暂无推荐歌曲,请连接内核或稍后重试'),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            sliver: SliverList.separated(
+              itemCount: songList.length,
+              itemBuilder: (context, index) {
+                final song = songList[index];
+                return SongCard(
+                  song: song,
+                  onPlay: () => player.playSong(song),
+                  onInsert: () => player.queueSong(song),
+                  onFavorite: () => player.likeSong(song),
+                );
+              },
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
+            ),
           ),
-        ),
         const SliverToBoxAdapter(child: SizedBox(height: 20)),
       ],
+    );
+  }
+}
+
+/// 空数据提示。
+class _EmptyHint extends StatelessWidget {
+  final String text;
+
+  const _EmptyHint({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 13, color: colors.textTertiary),
+      ),
     );
   }
 }
@@ -147,8 +199,9 @@ class HomePage extends StatelessWidget {
 /// 模式卡(心语/私人漫游/私人雷达/相似歌曲):渐变背景 + 白字。
 class _ModeCard extends StatefulWidget {
   final ModeCard card;
+  final VoidCallback? onTap;
 
-  const _ModeCard({required this.card});
+  const _ModeCard({required this.card, this.onTap});
 
   @override
   State<_ModeCard> createState() => _ModeCardState();
@@ -182,6 +235,7 @@ class _ModeCardState extends State<_ModeCard> {
                   Future.delayed(const Duration(milliseconds: 1800), () {
                     if (mounted) setState(() => _loading = false);
                   });
+                  widget.onTap?.call();
                 },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),

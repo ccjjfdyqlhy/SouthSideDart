@@ -1,16 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../services/backend_client.dart';
 import '../theme/app_theme.dart';
 
-/// 设置页(精简版):分组展示设置项,结构对齐 Qt 版的设置分组。
+/// 设置页:配置项读写内核(volume/play_method/language 等),主题本地切换。
 class SettingsPage extends StatefulWidget {
   final String themeId;
   final ValueChanged<String> onThemeChanged;
+  final BackendClient? client;
+  final bool backendConnected;
+  final int backendPlaylistSize;
+  final bool backendWsRunning;
+  final Future<void> Function() onReconnect;
 
   const SettingsPage({
     super.key,
     required this.themeId,
     required this.onThemeChanged,
+    this.client,
+    this.backendConnected = false,
+    this.backendPlaylistSize = 0,
+    this.backendWsRunning = false,
+    required this.onReconnect,
   });
 
   @override
@@ -25,8 +38,59 @@ class _SettingsPageState extends State<SettingsPage> {
   double _volume = 0.8;
   double _targetLufs = -14;
   double _crossfadeDuration = 8;
-  String _playMethod = '列表循环';
-  String _language = '简体中文';
+  String _playMethod = 'Repeat list';
+  String _language = 'zh_CN';
+
+  static const _playMethodOptions = {
+    '列表循环': 'Repeat list',
+    '单曲循环': 'Repeat one',
+    '随机播放': 'Shuffle',
+    '顺序播放': 'Play in order',
+  };
+  static const _languageOptions = {
+    '简体中文': 'zh_CN',
+    'English': 'en_US',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  /// 从内核拉取配置填充 UI。
+  Future<void> _loadConfig() async {
+    final c = widget.client;
+    if (c == null || !c.isConnected) return;
+    try {
+      final r = await c.call('get_config');
+      final data = (r['result'] as Map<String, dynamic>?) ?? {};
+      if (!mounted) return;
+      setState(() {
+        _volume = (data['volume'] as num?)?.toDouble() ?? _volume;
+        _playMethod = (data['play_method'] as String?) ?? _playMethod;
+        _language = (data['language'] as String?) ?? _language;
+        _advanced =
+            (data['show_advanced_settings'] as bool?) ?? _advanced;
+        _desktopLyrics =
+            (data['enable_desktop_lyrics'] as bool?) ?? _desktopLyrics;
+        _autoCleanup =
+            (data['data_cleanup_enabled'] as bool?) ?? _autoCleanup;
+        _targetLufs = (data['target_lufs'] as num?)?.toDouble() ?? _targetLufs;
+      });
+    } catch (_) {
+      // 内核不可用,保持默认值。
+    }
+  }
+
+  void _setConfig(String key, Object value) {
+    final c = widget.client;
+    if (c == null || !c.isConnected) return;
+    unawaited(
+      c.call('set_config', {'key': key, 'value': value})
+          .catchError((Object _) => <String, dynamic>{}),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,20 +103,72 @@ class _SettingsPageState extends State<SettingsPage> {
           current: widget.themeId,
           onChanged: widget.onThemeChanged,
         ),
+        _Group(
+          title: '内核连接',
+          children: [
+            _StatusTile(
+              label: 'Python 内核',
+              ok: widget.backendConnected,
+              okText: '已连接 (127.0.0.1:15490)',
+              failText: '未连接',
+            ),
+            _StatusTile(
+              label: '内核播放队列',
+              ok: true,
+              okText: '${widget.backendPlaylistSize} 首',
+            ),
+            _StatusTile(
+              label: 'WebSocket 桥 (15489)',
+              ok: widget.backendWsRunning,
+              okText: '运行中',
+              failText: '未启动',
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Material(
+                color: context.colors.accent,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  onTap: () => widget.onReconnect(),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    child: Text(
+                      '重新连接内核',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
         SwitchListTile(
           title: const Text('高级设置'),
           subtitle: const Text('显示完整的音频、FFT、LLM、存储参数'),
           value: _advanced,
-          onChanged: (v) => setState(() => _advanced = v),
+          onChanged: (v) {
+            setState(() => _advanced = v);
+            _setConfig('show_advanced_settings', v);
+          },
         ),
         _Group(
           title: '应用',
           children: [
             _DropdownTile(
               label: '语言',
-              value: _language,
-              options: const ['简体中文', 'English'],
-              onChanged: (v) => setState(() => _language = v),
+              options: _languageOptions.keys.toList(),
+              displayValue: _language,
+              optionValues: _languageOptions.values.toList(),
+              onChanged: (v) {
+                setState(() => _language = v);
+                _setConfig('language', v);
+              },
             ),
           ],
         ),
@@ -61,15 +177,22 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             _DropdownTile(
               label: '播放顺序',
-              value: _playMethod,
-              options: const ['列表循环', '单曲循环', '随机播放'],
-              onChanged: (v) => setState(() => _playMethod = v),
+              options: _playMethodOptions.keys.toList(),
+              displayValue: _playMethod,
+              optionValues: _playMethodOptions.values.toList(),
+              onChanged: (v) {
+                setState(() => _playMethod = v);
+                _setConfig('play_method', v);
+              },
             ),
             _SliderTile(
               label: '音量',
               value: _volume,
               max: 1,
-              onChanged: (v) => setState(() => _volume = v),
+              onChanged: (v) {
+                setState(() => _volume = v);
+                _setConfig('volume', v);
+              },
             ),
           ],
         ),
@@ -97,7 +220,10 @@ class _SettingsPageState extends State<SettingsPage> {
               value: _targetLufs,
               min: -24,
               max: -8,
-              onChanged: (v) => setState(() => _targetLufs = v),
+              onChanged: (v) {
+                setState(() => _targetLufs = v);
+                _setConfig('target_lufs', v.round());
+              },
             ),
           ],
         ),
@@ -107,7 +233,10 @@ class _SettingsPageState extends State<SettingsPage> {
             _SwitchTile(
               label: '显示桌面歌词',
               value: _desktopLyrics,
-              onChanged: (v) => setState(() => _desktopLyrics = v),
+              onChanged: (v) {
+                setState(() => _desktopLyrics = v);
+                _setConfig('enable_desktop_lyrics', v);
+              },
             ),
           ],
         ),
@@ -117,19 +246,18 @@ class _SettingsPageState extends State<SettingsPage> {
             _SwitchTile(
               label: '自动清理缓存',
               value: _autoCleanup,
-              onChanged: (v) => setState(() => _autoCleanup = v),
+              onChanged: (v) {
+                setState(() => _autoCleanup = v);
+                _setConfig('data_cleanup_enabled', v);
+              },
             ),
           ],
         ),
         if (_advanced) ...[
           _Group(
             title: 'FFT',
-            children: [
-              _SliderTile(
-                label: '频谱平滑',
-                value: 0.5,
-                onChanged: (_) {},
-              ),
+            children: const [
+              _InfoTile(label: '频谱分析', value: '实时 FFT 由内核输出'),
             ],
           ),
           _Group(
@@ -277,20 +405,24 @@ class _SliderTile extends StatelessWidget {
 
 class _DropdownTile extends StatelessWidget {
   final String label;
-  final String value;
+  final String displayValue;
   final List<String> options;
+  final List<String> optionValues;
   final ValueChanged<String> onChanged;
 
   const _DropdownTile({
     required this.label,
-    required this.value,
+    required this.displayValue,
     required this.options,
+    required this.optionValues,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final idx = optionValues.indexOf(displayValue);
+    final current = idx >= 0 ? options[idx] : displayValue;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
@@ -304,7 +436,7 @@ class _DropdownTile extends StatelessWidget {
           ),
           const Spacer(),
           DropdownButton<String>(
-            value: value,
+            value: current,
             underline: const SizedBox.shrink(),
             style: TextStyle(
               fontSize: 13,
@@ -315,8 +447,57 @@ class _DropdownTile extends StatelessWidget {
                 .map((o) => DropdownMenuItem(value: o, child: Text(o)))
                 .toList(),
             onChanged: (v) {
-              if (v != null) onChanged(v);
+              if (v == null) return;
+              final valueIdx = options.indexOf(v);
+              if (valueIdx >= 0 && valueIdx < optionValues.length) {
+                onChanged(optionValues[valueIdx]);
+              }
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 状态行:左侧标签 + 右侧状态点与文字。
+class _StatusTile extends StatelessWidget {
+  final String label;
+  final bool ok;
+  final String okText;
+  final String? failText;
+
+  const _StatusTile({
+    required this.label,
+    required this.ok,
+    required this.okText,
+    this.failText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: colors.textPrimary),
+          ),
+          const Spacer(),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: ok ? const Color(0xFF34C759) : colors.textTertiary,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            ok ? okText : (failText ?? '未知'),
+            style: TextStyle(fontSize: 13, color: colors.textSecondary),
           ),
         ],
       ),

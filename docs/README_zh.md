@@ -239,6 +239,7 @@ python -m py_compile src/main.py
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/
+python scripts/check_backend_no_qt.py   # 验证核心后端在无 PySide6 环境下可正常导入
 ```
 
 项目目前没有正式的自动化测试套件。`src/test.py` 是手动 API 探索脚本，不是 pytest 测试。
@@ -259,16 +260,38 @@ build.result\
 
 如果没有 Inno Setup，便携构建仍会保留在 `build.result\raw\`。
 
+### 无界面核心后端（Headless Backend）
+
+最近的几次重构把核心逻辑抽到了 `src/backend/` 下 UI 无关的独立包中。`CoreBackendService` 在不创建任何 Qt 控件的前提下完成配置、网易云 API、收藏、音频播放器、歌词解析、播放管理器、LLM 客户端和 WebSocket 桥接的初始化。`backend/shim.py` 和 `backend/signals.py` 提供了极小的 Qt-free 垫片，使 `src/core/` 下所有模块都能在没有 PySide6 的环境里导入；桌面 UI 在可用时仍使用原生 PySide6 行为。
+
+`standalone.py` 是完全不依赖 PySide6 的无头入口，通过 stdin/stdout 提供换行分隔的 JSON 协议：
+
+```bash
+python scripts/check_backend_no_qt.py        # 验证无 Qt 导入链路
+
+printf '{"id":1,"method":"ping"}\n{"id":2,"method":"shutdown"}\n' | \
+  python src/backend/standalone.py
+```
+
+每个请求为 `{"id": ..., "method": ..., "params": {...}}`，响应为 `{"id": ..., "result": ...}` 或 `{"id": ..., "error": {"code": ..., "message": ...}}`。
+
+### Flutter UI 重写
+
+`flutter_ui/` 是下一代界面的 Flutter 桌面（Linux）原型。目前包含主框架（标题栏、侧边栏、内容区、底部播放栏）、搜索 / 歌单 / 收藏 / 播放 / 设置页面、共享播放状态、带明暗模式的多主题注册表和 mock 数据，尚未接通真实后端。计划是通过上述无头后端协议驱动它，逐步取代 PySide6 界面。
+
 ### 项目结构
 
 ```text
 src/
   main.py          应用入口和启动生命周期
   imports.py       共享 Qt、类型和事件导入
+  backend/         UI 无关的核心后端服务（不依赖 Qt）
   core/            音频、配置、模型、歌词、主题和后端
   services/        事件总线、更新和应用服务
-  views/           页面、卡片、面板、窗口和控件
+  views/           PySide6 页面、卡片、面板、窗口和控件
   pyncm/           内置网易云音乐 API 客户端
+flutter_ui/        Flutter 桌面 UI 原型（UI 重写进行中）
+scripts/           构建与健康检查脚本
 docs/              中英文项目文档
 data/              运行时缓存和本地收藏数据
 fonts/             内置 HarmonyOS Sans SC 字体
@@ -280,7 +303,9 @@ config.json        持久化用户配置
 
 | 层级 | 技术 |
 | --- | --- |
-| 界面 | PySide6 + PySide6-Fluent-Widgets |
+| 界面（当前） | PySide6 + PySide6-Fluent-Widgets |
+| 界面（原型） | Flutter（`flutter_ui/`） |
+| 核心后端 | 无 Qt 依赖的 `src/backend/` 服务，提供无头 JSON 协议 |
 | 窗口 | qframelesswindow + hPyT |
 | 音频与 DSP | sounddevice + pydub + NumPy + SciPy |
 | 元数据 | mutagen |

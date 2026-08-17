@@ -239,6 +239,7 @@ python -m py_compile src/main.py
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/
+python scripts/check_backend_no_qt.py   # verify the core backend imports without PySide6
 ```
 
 There is no formal automated test suite yet. `src/test.py` is a manual API exploration script, not a pytest suite.
@@ -259,16 +260,50 @@ build.result\
 
 If Inno Setup is unavailable, the portable build remains in `build.result\raw\`.
 
+### Headless Backend
+
+Recent refactors moved the core into a UI-independent package under `src/backend/`.
+`CoreBackendService` initializes config, the NetEase API, favorites, the audio
+player, lyric parsers, the playback manager, the LLM client, and the WebSocket
+bridge without creating any Qt widget. Small Qt-free shims (`backend/shim.py`,
+`backend/signals.py`) let every `src/core/` module be imported without PySide6
+installed; the desktop UI keeps real PySide6 behavior when Qt is available.
+
+`standalone.py` is a headless entrypoint with no dependency on PySide6 at all.
+It serves a newline-delimited JSON protocol over stdin/stdout:
+
+```bash
+python scripts/check_backend_no_qt.py        # verify the no-Qt import chain
+
+printf '{"id":1,"method":"ping"}\n{"id":2,"method":"shutdown"}\n' | \
+  python src/backend/standalone.py
+```
+
+Each request is `{"id": ..., "method": ..., "params": {...}}` and each response
+is `{"id": ..., "result": ...}` or `{"id": ..., "error": {"code": ..., "message": ...}}`.
+
+### Flutter UI Rewrite
+
+`flutter_ui/` is a Flutter desktop (Linux) prototype of the next UI generation.
+It currently ships a Home shell (title bar, sidebar, content area, bottom player
+bar), Search / Playlist / Favorites / Now Playing / Settings pages, a shared
+player state, an accent-theme registry with dark/light modes, and mock data —
+no live backend wiring yet. The plan is to drive it over the headless backend
+protocol above, replacing the PySide6 views.
+
 ### Project Layout
 
 ```text
 src/
   main.py          Application entry and startup lifecycle
   imports.py       Shared Qt, typing, and event imports
+  backend/         UI-independent core backend service (no Qt dependency)
   core/            Audio, configuration, models, lyrics, themes, backends
   services/        Event bus, updates, and application services
-  views/           Pages, cards, panels, windows, and widgets
+  views/           PySide6 pages, cards, panels, windows, and widgets
   pyncm/           Bundled NetEase CloudMusic API client
+flutter_ui/        Flutter desktop UI prototype (UI rewrite in progress)
+scripts/           Build and health-check scripts
 docs/              English and Chinese documentation
 data/              Runtime caches and local favorite data
 fonts/             Bundled HarmonyOS Sans SC fonts
@@ -280,7 +315,9 @@ config.json        Persistent user configuration
 
 | Layer | Technology |
 | --- | --- |
-| GUI | PySide6 + PySide6-Fluent-Widgets |
+| GUI (current) | PySide6 + PySide6-Fluent-Widgets |
+| GUI (prototype) | Flutter (`flutter_ui/`) |
+| Core backend | Qt-free `src/backend/` service with a headless JSON protocol |
 | Windowing | qframelesswindow + hPyT |
 | Audio and DSP | sounddevice + pydub + NumPy + SciPy |
 | Metadata | mutagen |

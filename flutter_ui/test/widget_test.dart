@@ -4,7 +4,7 @@ import 'package:southside_music_ui/main.dart';
 
 void main() {
   testWidgets('app 可以构建主框架', (WidgetTester tester) async {
-    await tester.pumpWidget(const SouthsideMusicApp());
+    await tester.pumpWidget(const SouthsideMusicApp(autoConnect: false));
     expect(find.text('Southside Music'), findsWidgets);
     expect(find.text('首页'), findsWidgets);
   });

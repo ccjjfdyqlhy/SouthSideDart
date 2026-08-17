@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart';
 import '../models/models.dart';
+import '../services/backend_store.dart';
 import '../state/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -11,12 +11,14 @@ import '../widgets/song_card.dart';
 class FavoritesPage extends StatelessWidget {
   final Folder? folder;
   final PlayerState player;
+  final BackendStore? store;
   final VoidCallback onPlayAll;
 
   const FavoritesPage({
     super.key,
     required this.folder,
     required this.player,
+    this.store,
     required this.onPlayAll,
   });
 
@@ -32,9 +34,14 @@ class FavoritesPage extends StatelessWidget {
       );
     }
 
+    final backendSongs = (store != null &&
+            store!.loadedFolderId == folder!.id &&
+            store!.folderSongs.isNotEmpty)
+        ? store!.folderSongs
+        : null;
     final songs = folder!.songs.isNotEmpty
         ? folder!.songs
-        : mockRecommendedSongs().take(6).toList();
+        : (backendSongs ?? const []);
 
     return CustomScrollView(
       slivers: [
@@ -77,7 +84,18 @@ class FavoritesPage extends StatelessWidget {
                           _GhostBtn(
                             icon: Icons.playlist_add_rounded,
                             label: '添加到队列',
-                            onTap: () {},
+                            onTap: () {
+                              for (final s in songs) {
+                                player.queueSong(s);
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content:
+                                      Text('已添加 ${songs.length} 首到播放队列'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -88,22 +106,35 @@ class FavoritesPage extends StatelessWidget {
             ),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          sliver: SliverList.separated(
-            itemCount: songs.length,
-            itemBuilder: (context, index) {
-              final song = songs[index];
-              return SongCard(
-                song: song,
-                onPlay: () => player.playSong(song),
-                onInsert: () {},
-                onFavorite: () {},
-              );
-            },
-            separatorBuilder: (_, _) => const SizedBox(height: 2),
+        if (songs.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(
+                child: Text(
+                  '歌单暂无歌曲',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF6F6E86)),
+                ),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            sliver: SliverList.separated(
+              itemCount: songs.length,
+              itemBuilder: (context, index) {
+                final song = songs[index];
+                return SongCard(
+                  song: song,
+                  onPlay: () => player.playSong(song),
+                  onInsert: () => player.queueSong(song),
+                  onFavorite: () => player.likeSong(song),
+                );
+              },
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
+            ),
           ),
-        ),
       ],
     );
   }

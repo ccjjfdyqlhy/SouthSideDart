@@ -10,13 +10,17 @@ or directly:
 
 This starts the UI-independent core (config, NetEase API, audio player,
 playback manager, WebSocket bridge) with no PySide6/Qt dependency and serves a
-newline-delimited JSON protocol on stdin/stdout. It is the first step toward
-letting a future cross-platform UI talk to the same core as a separate process.
+newline-delimited JSON protocol on stdin/stdout and a TCP RPC server
+(``127.0.0.1:15490``) with event push. It lets a cross-platform UI talk to the
+same core as a separate process.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import socketserver
 import sys
 import threading
 from typing import Any
@@ -25,11 +29,132 @@ _SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+# 默认 TCP RPC 端口(供 Flutter/外部 UI 连接)。
+DEFAULT_TCP_PORT = 15490
+
 from backend.core_context import CoreContext
 from backend.protocol import encode_error, encode_response, parse_request
 from backend.service import CoreBackendService
-from services.events import PLAY_STATE_CHANGED, PLAYLAST, PLAYNEXT, event_bus
+from services.events import (
+    LYRIC_LINE_CHANGED,
+    PLAY_STATE_CHANGED,
+    PLAYBACK_LYRICS_UPDATED,
+    PLAYLIST_CHANGED,
+    PLAYLAST,
+    PLAYNEXT,
+    SONG_CHANGED,
+    event_bus,
+)
 
+
+# ---------------------------------------------------------------------------
+# 序列化辅助
+# ---------------------------------------------------------------------------
+
+def _artist_to_dict(artist: Any) -> dict[str, Any]:
+    return {
+        'id': str(getattr(artist, 'id', '')),
+        'name': str(getattr(artist, 'name', '')),
+    }
+
+
+def _song_to_dict(song: Any) -> dict[str, Any]:
+    """SongStorable / SongInfo 等 -> JSON 字典。"""
+    if song is None:
+        return {
+            'id': '',
+            'name': '',
+            'artists': [],
+            'album': '',
+            'cover_url': '',
+            'duration': 0,
+        }
+    album = getattr(song, 'album', None)
+    return {
+        'id': str(getattr(song, 'id', '')),
+        'name': str(getattr(song, 'name', '')),
+        'artists': [_artist_to_dict(a) for a in getattr(song, 'artists', [])],
+        'album': (
+            getattr(album, 'name', '')
+            if isinstance(album, (str, bytes))
+            else getattr(album, 'name', '') if album is not None else ''
+        ),
+        'cover_url': (
+            getattr(album, 'cover_url', '')
+            if album is not None and not isinstance(album, (str, bytes))
+            else ''
+        ),
+        'duration': int(getattr(song, 'duration', 0) or 0),
+    }
+
+
+def _cloud_folder_to_dict(folder: Any) -> dict[str, Any]:
+    return {
+        'id': str(getattr(folder, 'id', '')),
+        'name': str(getattr(folder, 'folder_name', '')),
+        'cover_url': str(getattr(folder, 'image_url', '') or ''),
+        'song_count': int(getattr(folder, 'song_count', 0) or 0),
+        'type': 'cloud',
+    }
+
+
+def _search_song_to_dict(song: Any) -> dict[str, Any]:
+    album = getattr(song, 'album', None)
+    return {
+        'id': str(getattr(song, 'id', '')),
+        'name': str(getattr(song, 'name', '')),
+        'artists': [_artist_to_dict(a) for a in getattr(song, 'artists', [])],
+        'album': getattr(album, 'name', '') if album is not None else '',
+        'cover_url': getattr(album, 'cover_url', '') if album is not None else '',
+        'duration': int(getattr(song, 'duration', 0) or 0),
+    }
+
+
+def _lrc_lines(lrc_text: str) -> list[dict[str, Any]]:
+    """把 LRC 文本解析成 [{'time': float秒, 'content': str}]。"""
+    lines: list[dict[str, Any]] = []
+    for raw in (lrc_text or '').splitlines():
+        raw = raw.strip()
+        m = re.match(r'\[(\d+):(\d+)[.:](\d+)\]', raw)
+        if not m:
+            continue
+        minutes = int(m.group(1))
+        seconds = int(m.group(2))
+        ms_raw = m.group(3).ljust(3, '0')[:3]
+        content = raw[m.end():].strip()
+        if not content:
+            continue
+        lines.append({
+            'time': minutes * 60 + seconds + int(ms_raw) / 1000,
+            'content': content,
+        })
+    lines.sort(key=lambda x: x['time'])
+    return lines
+
+
+def _song_from_payload(payload: dict[str, Any]) -> Any:
+    """把客户端歌曲 JSON 构造为 SongStorable(用于 play_songs)。"""
+    from core.models import ArtistInfo, SongInfo, SongStorable
+
+    info = SongInfo(
+        name=str(payload.get('name') or ''),
+        artists=[
+            ArtistInfo(
+                id=int(a.get('id') or 0),
+                name=str(a.get('name') or ''),
+            )
+            for a in (payload.get('artists') or [])
+        ],
+        id=str(payload.get('id') or ''),
+        privilege=0,
+        duration=int(payload.get('duration') or 0),
+    )
+    return SongStorable(info)
+
+
+# ---------------------------------------------------------------------------
+# RPC handler
+# ---------------------------------------------------------------------------
 
 def _handle_request(
     service: CoreBackendService,
@@ -60,12 +185,19 @@ def _handle_request(
 
     if method == 'get_config':
         cfg = ctx.config
+        if cfg is None:
+            return encode_response(request_id, {})
         return encode_response(
             request_id,
             {
-                'language': cfg.language if cfg else None,
-                'volume': cfg.volume if cfg else None,
-                'play_method': cfg.play_method if cfg else None,
+                'language': cfg.language,
+                'volume': cfg.volume,
+                'play_method': cfg.play_method,
+                'show_advanced_settings': cfg.show_advanced_settings,
+                'enable_desktop_lyrics': cfg.enable_desktop_lyrics,
+                'data_cleanup_enabled': cfg.data_cleanup_enabled,
+                'target_lufs': cfg.target_lufs,
+                'show_translation': cfg.show_translation,
             },
         )
 
@@ -73,17 +205,43 @@ def _handle_request(
         manager = ctx.playing_manager
         if manager is None:
             return encode_response(request_id, {'current_index': -1, 'items': []})
-        items = [
-            {
-                'index': index,
-                'id': str(getattr(song, 'id', '')),
-                'name': str(getattr(song, 'name', '')),
-            }
-            for index, song in enumerate(manager.playlist)
-        ]
+        items = [_song_to_dict(song) for song in manager.playlist]
         return encode_response(
             request_id,
-            {'current_index': manager.current_index, 'items': items},
+            {
+                'current_index': manager.current_index,
+                'items': items,
+                'current_song': _song_to_dict(manager.current_song),
+            },
+        )
+
+    if method == 'get_playback':
+        manager = ctx.playing_manager
+        player = ctx.player
+        if manager is None:
+            return encode_response(
+                request_id,
+                {
+                    'playing': False,
+                    'song': None,
+                    'position': 0.0,
+                    'duration': 0.0,
+                    'playlist': [],
+                    'current_index': -1,
+                },
+            )
+        song = manager.current_song
+        duration = float(getattr(song, 'duration', 0) or 0) / 1000
+        return encode_response(
+            request_id,
+            {
+                'playing': bool(player and player.isPlaying()),
+                'song': _song_to_dict(song),
+                'position': float(player.getPosition()) if player else 0.0,
+                'duration': duration,
+                'playlist': [_song_to_dict(s) for s in manager.playlist],
+                'current_index': manager.current_index,
+            },
         )
 
     if method == 'list_favorites':
@@ -92,13 +250,363 @@ def _handle_request(
             {
                 'folders': [
                     {
+                        'id': str(getattr(folder, 'id', '')),
                         'name': folder.folder_name,
                         'count': len(folder.songs),
+                        'type': 'local'
+                        if getattr(folder, 'id', None) is None
+                        else 'cloud',
                     }
                     for folder in ctx.favs
                 ]
             },
         )
+
+    if method == 'search':
+        from core.backend import getBackend
+
+        query = str(params.get('query') or '').strip()
+        stype = params.get('type') or 'songs'
+        try:
+            offset = int(params.get('offset') or 0)
+        except (TypeError, ValueError):
+            offset = 0
+        if not query:
+            return encode_error(request_id, 'empty query')
+        try:
+            if stype == 'playlists':
+                result = getBackend().searchPlaylist(query, offset) or []
+                items = [_cloud_folder_to_dict(f) for f in result]
+                return encode_response(
+                    request_id, {'type': 'playlists', 'items': items}
+                )
+            result = getBackend().searchSong(query, offset) or []
+            items = [_search_song_to_dict(s) for s in result]
+            return encode_response(request_id, {'type': 'songs', 'items': items})
+        except Exception as exc:
+            return encode_error(request_id, f'search failed: {exc}')
+
+    if method == 'daily_recommend':
+        from core.backend import getBackend
+
+        try:
+            folders = getBackend().getDailyRecommendFolders() or []
+            songs = getBackend().getDailyRecommendSongs() or []
+            return encode_response(
+                request_id,
+                {
+                    'folders': [_cloud_folder_to_dict(f) for f in folders],
+                    'songs': [_song_to_dict(s) for s in songs],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'daily recommend failed: {exc}')
+
+    if method == 'user_playlists':
+        from core.backend import getBackend
+
+        try:
+            folders = getBackend().getUserPlaylists() or []
+            return encode_response(
+                request_id,
+                {'folders': [_cloud_folder_to_dict(f) for f in folders]},
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get user playlists failed: {exc}')
+
+    if method == 'folder_songs':
+        from core.backend import getBackend
+
+        folder_id = str(params.get('folder_id') or '')
+        ftype = params.get('type') or 'cloud'
+        if not folder_id:
+            return encode_error(request_id, 'missing folder_id')
+        try:
+            if ftype == 'local':
+                songs: list[dict[str, Any]] = []
+                for folder in ctx.favs:
+                    if getattr(folder, 'id', None) == folder_id or (
+                        folder.folder_name == folder_id
+                    ):
+                        songs = [_song_to_dict(s) for s in folder.songs]
+                        break
+                return encode_response(request_id, {'songs': songs})
+            tracks = getBackend().getPlaylistTracks(folder_id) or []
+            return encode_response(
+                request_id, {'songs': [_song_to_dict(s) for s in tracks]}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get folder songs failed: {exc}')
+
+    if method == 'play_songs':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        raw = params.get('songs')
+        if not isinstance(raw, list) or not raw:
+            return encode_error(request_id, 'empty songs')
+        try:
+            songs = [_song_from_payload(s) for s in raw]
+            manager.setPlaylist(songs)
+            manager.playSongAtIndex(0)
+            return encode_response(request_id, {'ok': True, 'count': len(songs)})
+        except Exception as exc:
+            return encode_error(request_id, f'play songs failed: {exc}')
+
+    if method == 'play_playlist':
+        from core.backend import getBackend
+
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        folder_id = str(params.get('folder_id') or '')
+        ftype = params.get('type') or 'cloud'
+        try:
+            start = int(params.get('start_index') or 0)
+        except (TypeError, ValueError):
+            start = 0
+        if not folder_id:
+            return encode_error(request_id, 'missing folder_id')
+        try:
+            if ftype == 'local':
+                tracks: list[Any] = []
+                for folder in ctx.favs:
+                    if getattr(folder, 'id', None) == folder_id or (
+                        folder.folder_name == folder_id
+                    ):
+                        tracks = list(folder.songs)
+                        break
+            else:
+                tracks = list(getBackend().getPlaylistTracks(folder_id) or [])
+            if not tracks:
+                return encode_response(request_id, {'ok': False, 'count': 0})
+            manager.setPlaylist(tracks)
+            manager.playSongAtIndex(max(0, min(start, len(tracks) - 1)))
+            return encode_response(request_id, {'ok': True, 'count': len(tracks)})
+        except Exception as exc:
+            return encode_error(request_id, f'play playlist failed: {exc}')
+
+    if method == 'play_mode':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        mode = params.get('mode')
+        try:
+            if mode == 'heart':
+                manager.startHeartMode()
+            elif mode == 'fm':
+                manager.startPersonalFM()
+            elif mode == 'radar':
+                manager.startPrivateRadar()
+            elif mode == 'similar':
+                manager.startSimilarSongs()
+            else:
+                return encode_error(request_id, f'unknown mode: {mode}')
+        except Exception as exc:
+            return encode_error(request_id, f'play mode failed: {exc}')
+        return encode_response(request_id, {'ok': True})
+
+    if method == 'get_lyrics':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            info = getBackend().getTrackLyrics(song_id)
+            lrc = str(getattr(info, 'lyric', '') or '') if info else ''
+            translated = (
+                str(getattr(info, 'translated_lyric', '') or '')
+                if info
+                else ''
+            )
+            return encode_response(
+                request_id,
+                {
+                    'lines': _lrc_lines(lrc),
+                    'translated': _lrc_lines(translated),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get lyrics failed: {exc}')
+
+    if method == 'set_config':
+        cfg = ctx.config
+        if cfg is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        key = params.get('key')
+        value = params.get('value')
+        allowed: dict[str, type] = {
+            'volume': float,
+            'play_method': str,
+            'language': str,
+            'show_translation': bool,
+            'show_advanced_settings': bool,
+            'background_ratio': float,
+            'play_speed': float,
+            'play_pitch': float,
+            'data_cleanup_enabled': bool,
+            'data_cache_max_mb': int,
+            'lyrics_smooth_factor': float,
+            'enable_desktop_lyrics': bool,
+            'target_lufs': int,
+        }
+        if key not in allowed:
+            return encode_error(request_id, f'config key not allowed: {key}')
+        try:
+            from core.config import saveConfig
+
+            setattr(cfg, key, allowed[key](value))
+            saveConfig()
+        except (TypeError, ValueError) as exc:
+            return encode_error(request_id, f'invalid value for {key}: {exc}')
+        return encode_response(request_id, {'ok': True})
+
+    if method in ('like_song', 'unlike_song'):
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            folder_id = str(params.get('folder_id') or '')
+            if not folder_id:
+                liked = getBackend().getLikedPlaylist()
+                folder_id = str(liked.id) if liked else ''
+            if not folder_id:
+                return encode_error(request_id, 'no liked playlist found')
+            option = 'add' if method == 'like_song' else 'del'
+            getBackend().editPlaylist(option, [song_id], folder_id)
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'{method} failed: {exc}')
+
+    if method == 'remove_playlist_song':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        try:
+            index = int(params.get('index', -1))
+        except (TypeError, ValueError):
+            return encode_error(request_id, 'invalid index')
+        if not 0 <= index < len(manager.playlist):
+            return encode_error(request_id, 'index out of range')
+        manager.playlist.pop(index)
+        if index < manager.current_index:
+            manager.current_index -= 1
+        event_bus.emit(PLAYLIST_CHANGED)
+        return encode_response(request_id, {'ok': True})
+
+    if method == 'clear_playlist':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        current = manager.current_song
+        manager.playlist.clear()
+        if current is not None:
+            manager.playlist.append(current)
+            manager.current_index = 0
+        else:
+            manager.current_index = -1
+        event_bus.emit(PLAYLIST_CHANGED)
+        return encode_response(request_id, {'ok': True, 'remaining': len(manager.playlist)})
+
+    if method == 'queue_song':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        try:
+            song = _song_from_payload(params.get('song') or {})
+            raw_index = params.get('index')
+            if raw_index is None:
+                insert_at = manager.current_index + 2
+                if insert_at > len(manager.playlist):
+                    insert_at = len(manager.playlist)
+            else:
+                insert_at = max(0, min(int(raw_index), len(manager.playlist)))
+            manager.playlist.insert(insert_at, song)
+            event_bus.emit(PLAYLIST_CHANGED)
+            return encode_response(request_id, {'ok': True, 'index': insert_at})
+        except Exception as exc:
+            return encode_error(request_id, f'queue song failed: {exc}')
+
+    if method == 'play_storable':
+        manager = ctx.playing_manager
+        if manager is None:
+            return encode_error(request_id, 'backend not fully initialized')
+        try:
+            song = _song_from_payload(params.get('song') or {})
+            manager.playStorable(song)
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'play storable failed: {exc}')
+
+    if method == 'get_comments':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            page = max(1, int(params.get('page') or 1))
+            limit = max(1, min(50, int(params.get('limit') or 20)))
+            info = getBackend().getComments(song_id, page, limit)
+            comments = []
+            for comment in info.comments:
+                user = getattr(comment, 'user', None)
+                comments.append(
+                    {
+                        'id': str(getattr(comment, 'id', '')),
+                        'content': str(getattr(comment, 'content', '')),
+                        'liked_count': int(getattr(comment, 'liked_count', 0) or 0),
+                        'time': (
+                            comment.time.isoformat()
+                            if getattr(comment, 'time', None)
+                            else ''
+                        ),
+                        'user': {
+                            'id': str(getattr(user, 'id', '')),
+                            'avatar_url': str(getattr(user, 'avatar_url', '') or ''),
+                            'nickname': str(getattr(user, 'nickname', '')),
+                        },
+                        'be_replied': [
+                            {
+                                'content': str(getattr(be, 'content', '')),
+                                'user': {
+                                    'nickname': str(
+                                        getattr(getattr(be, 'user', None), 'nickname', '')
+                                    )
+                                },
+                            }
+                            for be in (getattr(comment, 'be_replied', None) or [])
+                        ],
+                    }
+                )
+            return encode_response(
+                request_id,
+                {
+                    'total': int(getattr(info, 'total_count', 0) or 0),
+                    'cursor': str(getattr(info, 'cursor', '-1')),
+                    'comments': comments,
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get comments failed: {exc}')
+
+    if method == 'add_comment':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        content = str(params.get('content') or '').strip()
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        if not content:
+            return encode_error(request_id, 'empty content')
+        try:
+            getBackend().addComment(song_id, content)
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'add comment failed: {exc}')
 
     if method == 'play_control':
         command = params.get('command')
@@ -122,6 +630,12 @@ def _handle_request(
             except (TypeError, ValueError):
                 return encode_error(request_id, 'invalid position')
             player.setPosition(max(0.0, position))
+        elif command == 'volume':
+            try:
+                volume = float(params.get('volume', 1.0))
+            except (TypeError, ValueError):
+                return encode_error(request_id, 'invalid volume')
+            player.setVolume(max(0.0, min(1.0, volume)))
         else:
             return encode_error(request_id, f'unknown play_control: {command}')
         return encode_response(request_id, {'ok': True})
@@ -133,7 +647,135 @@ def _handle_request(
     return encode_error(request_id, f'unknown method: {method}', code=404)
 
 
+# ---------------------------------------------------------------------------
+# TCP RPC 服务器(带事件推送)
+# ---------------------------------------------------------------------------
+
+def _make_tcp_server(
+    service: CoreBackendService,
+    shutdown_event: threading.Event,
+    port: int = DEFAULT_TCP_PORT,
+) -> socketserver.ThreadingTCPServer:
+    """换行分隔 JSON 的 TCP RPC 服务器 + 事件总线推送。
+
+    与 stdin/stdout 通道共享 ``_handle_request``;事件总线上的核心事件
+    (歌曲变化、播放状态、播放列表、歌词)会推送给所有已连接客户端。
+    """
+
+    clients: set[Any] = set()
+    clients_lock = threading.Lock()
+
+    def _broadcast(event: str, data: dict[str, Any]) -> None:
+        payload = (json.dumps({'event': event, 'data': data}) + '\n').encode(
+            'utf-8'
+        )
+        with clients_lock:
+            dead: list[Any] = []
+            for writer in list(clients):
+                if not writer.send(payload):
+                    dead.append(writer)
+            for writer in dead:
+                clients.discard(writer)
+
+    class _ClientWriter:
+        def __init__(self, handler: socketserver.StreamRequestHandler) -> None:
+            self._handler = handler
+            self._write_lock = threading.Lock()
+
+        def send(self, text: bytes | str) -> bool:
+            try:
+                with self._write_lock:
+                    if isinstance(text, str):
+                        text = text.encode('utf-8')
+                    self._handler.wfile.write(text)
+                    self._handler.wfile.flush()
+                return True
+            except OSError:
+                return False
+
+    class _JsonHandler(socketserver.StreamRequestHandler):
+        def handle(self) -> None:  # noqa: D401
+            writer = _ClientWriter(self)
+            with clients_lock:
+                clients.add(writer)
+            try:
+                while True:
+                    line = self.rfile.readline()
+                    if not line:
+                        break
+                    line = line.decode('utf-8', errors='replace').strip()
+                    if not line:
+                        continue
+                    request = parse_request(line)
+                    if request is None:
+                        writer.send(encode_error(None, 'invalid JSON request'))
+                        continue
+                    print(f'[backend] rpc {request.get("method")} start', file=sys.stderr, flush=True)
+                    response = _handle_request(service, request)
+                    print(f'[backend] rpc {request.get("method")} done', file=sys.stderr, flush=True)
+                    writer.send(response)
+                    print(f'[backend] rpc {request.get("method")} sent', file=sys.stderr, flush=True)
+                    if request.get('method') == 'shutdown':
+                        shutdown_event.set()
+                        break
+            finally:
+                with clients_lock:
+                    clients.discard(writer)
+
+    # 事件推送订阅。
+    def _on_song_changed(song: Any) -> None:
+        _broadcast('SONG_CHANGED', {'song': _song_to_dict(song)})
+
+    def _on_play_state_changed(playing: Any) -> None:
+        _broadcast('PLAY_STATE_CHANGED', {'playing': bool(playing)})
+
+    def _on_playlist_changed(*_: Any) -> None:
+        _broadcast('PLAYLIST_CHANGED', {})
+
+    def _on_lyrics_updated(song: Any) -> None:
+        _broadcast(
+            'PLAYBACK_LYRICS_UPDATED',
+            {'song_id': str(getattr(song, 'id', ''))},
+        )
+
+    def _on_lyric_line_changed(*_: Any) -> None:
+        _broadcast('LYRIC_LINE_CHANGED', {})
+
+    event_bus.subscribe(SONG_CHANGED, _on_song_changed)
+    event_bus.subscribe(PLAY_STATE_CHANGED, _on_play_state_changed)
+    event_bus.subscribe(PLAYLIST_CHANGED, _on_playlist_changed)
+    event_bus.subscribe(PLAYBACK_LYRICS_UPDATED, _on_lyrics_updated)
+    event_bus.subscribe(LYRIC_LINE_CHANGED, _on_lyric_line_changed)
+
+    try:
+        server: socketserver.ThreadingTCPServer = socketserver.ThreadingTCPServer(
+            ('127.0.0.1', port),
+            _JsonHandler,
+        )
+    except OSError as exc:
+        print(
+            f'[backend] error: 端口 {port} 已被占用,请先停止旧内核进程 '
+            f'或使用 --port 指定其他端口 ({exc})',
+            file=sys.stderr,
+        )
+        raise
+    server.daemon_threads = True
+    server.allow_reuse_address = True
+    return server
+
+
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description='SouthsideMusic core backend')
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=DEFAULT_TCP_PORT,
+        help=f'TCP RPC 端口(默认 {DEFAULT_TCP_PORT})',
+    )
+    args = parser.parse_args()
+
     shutdown_event = threading.Event()
 
     service = CoreBackendService(context=CoreContext())
@@ -142,6 +784,18 @@ def main() -> int:
         progress=lambda message: print(f'[backend] {message}', file=sys.stderr),
     )
     service.start()
+
+    tcp_server = _make_tcp_server(service, shutdown_event, port=args.port)
+    tcp_thread = threading.Thread(
+        target=tcp_server.serve_forever,
+        name='backend-tcp',
+        daemon=True,
+    )
+    tcp_thread.start()
+    print(
+        f'[backend] tcp rpc listening on 127.0.0.1:{args.port}',
+        file=sys.stderr,
+    )
 
     def _stdin_loop() -> None:
         for line in sys.stdin:
@@ -162,6 +816,7 @@ def main() -> int:
     thread.start()
 
     shutdown_event.wait()
+    tcp_server.shutdown()
     return 0
 
 

@@ -40,12 +40,8 @@ class PlaylistPage extends StatelessWidget {
                 IconBtn(
                   icon: Icons.clear_all_rounded,
                   size: 18,
-                  tooltip: '清空',
-                  onTap: () {
-                    player
-                      ..setPlaylist([])
-                      ..isPlaying = false;
-                  },
+                  tooltip: '清空(保留当前歌曲)',
+                  onTap: player.clearPlaylist,
                 ),
                 IconBtn(
                   icon: Icons.close_rounded,
@@ -79,16 +75,7 @@ class PlaylistPage extends StatelessWidget {
                         index: index,
                         isCurrent: isCurrent,
                         onPlay: () => player.playSong(song),
-                        onRemove: () {
-                          final list = List<Song>.from(player.playlist)
-                            ..removeAt(index);
-                          final newIndex = index < player.currentIndex
-                              ? player.currentIndex - 1
-                              : player.currentIndex;
-                          player
-                            ..setPlaylist(list)
-                            ..currentIndex = newIndex;
-                        },
+                        onRemove: () => player.removePlaylistSong(index),
                       );
                     },
                   ),

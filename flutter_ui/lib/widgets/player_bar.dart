@@ -10,6 +10,7 @@ import 'common.dart';
 class PlayerBar extends StatelessWidget {
   final PlayerState player;
   final List<LyricLine> lyrics;
+  final bool backendConnected;
   final VoidCallback onExpand;
   final VoidCallback onPlaylist;
 
@@ -17,6 +18,7 @@ class PlayerBar extends StatelessWidget {
     super.key,
     required this.player,
     required this.lyrics,
+    this.backendConnected = false,
     required this.onExpand,
     required this.onPlaylist,
   });
@@ -139,6 +141,21 @@ class PlayerBar extends StatelessWidget {
                   size: 20,
                   tooltip: '播放列表',
                   onTap: onPlaylist,
+                ),
+                const SizedBox(width: 4),
+                // 内核连接指示灯
+                Tooltip(
+                  message: backendConnected ? '内核已连接' : '内核未连接',
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: backendConnected
+                          ? const Color(0xFF34C759)
+                          : colors.textTertiary,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 12),
               ],

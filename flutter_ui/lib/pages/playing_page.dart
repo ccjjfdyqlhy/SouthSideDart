@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart';
 import '../models/models.dart';
+import '../services/backend_store.dart';
 import '../state/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -19,11 +21,19 @@ enum PlayingLayout {
 /// 支持两种布局:`classic` 与 `line`,左上角按钮切换。
 class PlayingPage extends StatefulWidget {
   final PlayerState player;
+
+  /// 歌词(优先后端真实歌词,mock 兜底)。
+  final List<LyricLine> lyrics;
+  final BackendStore? store;
+  final VoidCallback? onComments;
   final VoidCallback onCollapse;
 
   const PlayingPage({
     super.key,
     required this.player,
+    this.lyrics = const [],
+    this.store,
+    this.onComments,
     required this.onCollapse,
   });
 
@@ -33,6 +43,22 @@ class PlayingPage extends StatefulWidget {
 
 class _PlayingPageState extends State<PlayingPage> {
   PlayingLayout _layout = PlayingLayout.classic;
+  bool _showTranslation = true;
+
+  void _toggleTranslation() {
+    setState(() => _showTranslation = !_showTranslation);
+    final store = widget.store;
+    if (store != null && store.client.isConnected) {
+      unawaited(
+        store.client
+            .call('set_config', {
+              'key': 'show_translation',
+              'value': _showTranslation,
+            })
+            .catchError((Object _) => <String, dynamic>{}),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +67,10 @@ class _PlayingPageState extends State<PlayingPage> {
     if (song == null) {
       return const SizedBox.shrink();
     }
+    final translated = (widget.store?.currentTranslatedLyrics.isNotEmpty ??
+            false)
+        ? widget.store!.currentTranslatedLyrics
+        : const <LyricLine>[];
 
     return Container(
       color: colors.background,
@@ -71,18 +101,31 @@ class _PlayingPageState extends State<PlayingPage> {
             left: 16,
             child: _FloatingActions(
               layout: _layout,
+              showTranslation: _showTranslation,
               onCollapse: widget.onCollapse,
               onToggleLayout: () => setState(() {
                 _layout = _layout == PlayingLayout.classic
                     ? PlayingLayout.line
                     : PlayingLayout.classic;
               }),
+              onToggleTranslation: _toggleTranslation,
+              onComments: widget.onComments,
             ),
           ),
           if (_layout == PlayingLayout.classic)
-            _ClassicLayout(player: widget.player, song: song)
+            _ClassicLayout(
+              player: widget.player,
+              song: song,
+              lyrics: widget.lyrics,
+              translatedLyrics: _showTranslation ? translated : const [],
+            )
           else
-            _LineLyricsLayout(player: widget.player, song: song),
+            _LineLyricsLayout(
+              player: widget.player,
+              song: song,
+              lyrics: widget.lyrics,
+              translatedLyrics: _showTranslation ? translated : const [],
+            ),
         ],
       ),
     );
@@ -93,8 +136,15 @@ class _PlayingPageState extends State<PlayingPage> {
 class _ClassicLayout extends StatelessWidget {
   final PlayerState player;
   final Song song;
+  final List<LyricLine> lyrics;
+  final List<LyricLine> translatedLyrics;
 
-  const _ClassicLayout({required this.player, required this.song});
+  const _ClassicLayout({
+    required this.player,
+    required this.song,
+    required this.lyrics,
+    required this.translatedLyrics,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +201,11 @@ class _ClassicLayout extends StatelessWidget {
         ),
         Expanded(
           flex: 5,
-          child: _LyricsPanel(player: player),
+          child: _LyricsPanel(
+            player: player,
+            lyrics: lyrics,
+            translatedLyrics: translatedLyrics,
+          ),
         ),
       ],
     );
@@ -162,13 +216,19 @@ class _ClassicLayout extends StatelessWidget {
 class _LineLyricsLayout extends StatelessWidget {
   final PlayerState player;
   final Song song;
+  final List<LyricLine> lyrics;
+  final List<LyricLine> translatedLyrics;
 
-  const _LineLyricsLayout({required this.player, required this.song});
+  const _LineLyricsLayout({
+    required this.player,
+    required this.song,
+    required this.lyrics,
+    required this.translatedLyrics,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final lyrics = mockLyrics();
 
     return Column(
       children: [
@@ -179,6 +239,7 @@ class _LineLyricsLayout extends StatelessWidget {
           child: _LineLyricText(
             player: player,
             lyrics: lyrics,
+            translatedLyrics: translatedLyrics,
             colors: colors,
           ),
         ),
@@ -226,7 +287,7 @@ class _LineLyricsLayout extends StatelessWidget {
                     size: 20,
                     tooltip: '收藏',
                     color: colors.danger,
-                    onTap: () {},
+                    onTap: () => player.likeSong(song),
                   ),
                 ],
               ),
@@ -268,15 +329,17 @@ class _LineLyricsLayout extends StatelessWidget {
   }
 }
 
-/// 单行歌词文本:当前行放大显示,切行时淡入淡出。
+/// 单行歌词文本:当前行放大显示,切行时淡入淡出,可附翻译。
 class _LineLyricText extends StatelessWidget {
   final PlayerState player;
   final List<LyricLine> lyrics;
+  final List<LyricLine> translatedLyrics;
   final AppColors colors;
 
   const _LineLyricText({
     required this.player,
     required this.lyrics,
+    required this.translatedLyrics,
     required this.colors,
   });
 
@@ -286,7 +349,11 @@ class _LineLyricText extends StatelessWidget {
       animation: player,
       builder: (context, _) {
         final idx = player.currentLyricIndex(lyrics);
-        final text = lyrics.isNotEmpty ? lyrics[idx].text : '';
+        final text = lyrics.isNotEmpty ? lyrics[idx].text : '暂无歌词';
+        final translated = translatedLyrics.isNotEmpty &&
+                idx < translatedLyrics.length
+            ? translatedLyrics[idx].text
+            : '';
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
           switchInCurve: Curves.easeOut,
@@ -295,15 +362,32 @@ class _LineLyricText extends StatelessWidget {
             opacity: animation,
             child: child,
           ),
-          child: Text(
-            text,
+          child: Column(
             key: ValueKey(idx),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
-            ),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                text,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w700,
+                  color: colors.textPrimary,
+                ),
+              ),
+              if (translated.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  translated,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ],
           ),
         );
       },
@@ -375,14 +459,29 @@ class _LineProgress extends StatelessWidget {
 
 class _FloatingActions extends StatelessWidget {
   final PlayingLayout layout;
+  final bool showTranslation;
   final VoidCallback onCollapse;
   final VoidCallback onToggleLayout;
+  final VoidCallback onToggleTranslation;
+  final VoidCallback? onComments;
 
   const _FloatingActions({
     required this.layout,
+    required this.showTranslation,
     required this.onCollapse,
     required this.onToggleLayout,
+    required this.onToggleTranslation,
+    this.onComments,
   });
+
+  void _notImplemented(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$feature 功能将在后续版本接入内核'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -418,26 +517,30 @@ class _FloatingActions extends StatelessWidget {
           IconBtn(
             icon: Icons.translate_rounded,
             size: 18,
-            tooltip: '翻译',
-            onTap: () {},
+            tooltip: showTranslation ? '隐藏翻译' : '显示翻译',
+            color: showTranslation ? colors.accent : colors.textSecondary,
+            onTap: onToggleTranslation,
           ),
           IconBtn(
             icon: Icons.video_settings_rounded,
             size: 18,
             tooltip: '导出歌词视频',
-            onTap: () {},
+            color: colors.textSecondary,
+            onTap: () => _notImplemented(context, '导出歌词视频'),
           ),
           IconBtn(
             icon: Icons.edit_rounded,
             size: 18,
             tooltip: '编辑歌词',
-            onTap: () {},
+            color: colors.textSecondary,
+            onTap: () => _notImplemented(context, '歌词编辑'),
           ),
           IconBtn(
             icon: Icons.comment_rounded,
             size: 18,
             tooltip: '查看评论',
-            onTap: () {},
+            color: colors.textSecondary,
+            onTap: onComments,
           ),
         ],
       ),
@@ -536,15 +639,21 @@ class _ProgressControls extends StatelessWidget {
 /// 歌词面板:内部监听播放进度,仅当当前行变化时才重建,降低帧率开销。
 class _LyricsPanel extends StatefulWidget {
   final PlayerState player;
+  final List<LyricLine> lyrics;
+  final List<LyricLine> translatedLyrics;
 
-  const _LyricsPanel({required this.player});
+  const _LyricsPanel({
+    required this.player,
+    required this.lyrics,
+    required this.translatedLyrics,
+  });
 
   @override
   State<_LyricsPanel> createState() => _LyricsPanelState();
 }
 
 class _LyricsPanelState extends State<_LyricsPanel> {
-  static final List<LyricLine> _lyrics = mockLyrics();
+  List<LyricLine> get _lyrics => widget.lyrics;
   int _current = 0;
 
   @override
@@ -560,6 +669,9 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     if (oldWidget.player != widget.player) {
       oldWidget.player.removeListener(_onPlayerChanged);
       widget.player.addListener(_onPlayerChanged);
+    }
+    if (oldWidget.lyrics != widget.lyrics) {
+      _current = widget.player.currentLyricIndex(_lyrics);
     }
   }
 
@@ -578,11 +690,23 @@ class _LyricsPanelState extends State<_LyricsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    if (_lyrics.isEmpty) {
+      return Center(
+        child: Text(
+          '暂无歌词',
+          style: TextStyle(
+            fontSize: 14,
+            color: context.colors.textTertiary,
+          ),
+        ),
+      );
+    }
     return Center(
       child: SizedBox(
         width: 480,
         child: _AutoScrollLyrics(
           lyrics: _lyrics,
+          translatedLyrics: widget.translatedLyrics,
           currentIndex: _current,
         ),
       ),
@@ -593,10 +717,12 @@ class _LyricsPanelState extends State<_LyricsPanel> {
 /// 自动滚动歌词列表(Apple Music 风格:当前行放大,其他行缩小淡出)。
 class _AutoScrollLyrics extends StatefulWidget {
   final List<LyricLine> lyrics;
+  final List<LyricLine> translatedLyrics;
   final int currentIndex;
 
   const _AutoScrollLyrics({
     required this.lyrics,
+    required this.translatedLyrics,
     required this.currentIndex,
   });
 
@@ -606,13 +732,14 @@ class _AutoScrollLyrics extends StatefulWidget {
 
 class _AutoScrollLyricsState extends State<_AutoScrollLyrics> {
   final ScrollController _controller = ScrollController();
+  static const _rowHeight = 72.0;
 
   @override
   void didUpdateWidget(covariant _AutoScrollLyrics oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentIndex != widget.currentIndex) {
       final item = widget.currentIndex.clamp(0, widget.lyrics.length - 1);
-      final target = item * 52.0 - 120;
+      final target = item * _rowHeight - 120;
       _controller.animateTo(
         target.clamp(0, _controller.position.maxScrollExtent),
         duration: const Duration(milliseconds: 350),
@@ -630,11 +757,15 @@ class _AutoScrollLyricsState extends State<_AutoScrollLyrics> {
       itemCount: widget.lyrics.length,
       itemBuilder: (context, index) {
         final line = widget.lyrics[index];
+        final translated = widget.translatedLyrics.isNotEmpty &&
+                index < widget.translatedLyrics.length
+            ? widget.translatedLyrics[index].text
+            : '';
         final isCurrent = index == widget.currentIndex;
         final distance = (index - widget.currentIndex).abs();
         return RepaintBoundary(
           child: SizedBox(
-            height: 52,
+            height: _rowHeight,
             child: Center(
               child: AnimatedScale(
                 duration: const Duration(milliseconds: 350),
@@ -643,19 +774,37 @@ class _AutoScrollLyricsState extends State<_AutoScrollLyrics> {
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 350),
                   opacity: isCurrent ? 1.0 : (distance <= 2 ? 0.55 : 0.3),
-                  child: Text(
-                    line.text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: isCurrent
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                      color: isCurrent
-                          ? colors.textPrimary
-                          : colors.lyricInactive,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        line.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: isCurrent
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: isCurrent
+                              ? colors.textPrimary
+                              : colors.lyricInactive,
+                        ),
+                      ),
+                      if (translated.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            translated,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
