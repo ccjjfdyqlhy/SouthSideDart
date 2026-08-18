@@ -59,9 +59,9 @@ class BackendStore extends ChangeNotifier {
   /// 最近一次加载的歌单 id(供 FavoritesPage 判断当前数据归属)。
   int loadedFolderId = -1;
 
-  /// 每日推荐(首页)。
-  Future<void> loadDaily() async {
-    if (!client.isConnected || loadingDaily) return;
+  /// 每日推荐(首页)。``force`` 用于登录成功后强制刷新。
+  Future<void> loadDaily({bool force = false}) async {
+    if (!client.isConnected || (loadingDaily && !force)) return;
     loadingDaily = true;
     notifyListeners();
     try {
@@ -83,9 +83,9 @@ class BackendStore extends ChangeNotifier {
     }
   }
 
-  /// 用户云端歌单 + 本地收藏夹。
-  Future<void> loadPlaylists() async {
-    if (!client.isConnected || loadingFolders) return;
+  /// 用户云端歌单 + 本地收藏夹。``force`` 用于登录成功后强制刷新。
+  Future<void> loadPlaylists({bool force = false}) async {
+    if (!client.isConnected || (loadingFolders && !force)) return;
     loadingFolders = true;
     notifyListeners();
     try {

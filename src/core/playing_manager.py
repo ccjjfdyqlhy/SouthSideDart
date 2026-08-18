@@ -1899,7 +1899,7 @@ class PlayingManager:
                 if music_missing:
                     audio = getBackend().getTrackAudio(
                         str(song_storable.id),
-                        bitrate=3200 * 1000,
+                        bitrate=self.ctx.config.play_quality,
                     )
                     self._logger.debug(f'{audio.url=}')
                     prepared['music_url'] = audio.url
@@ -2465,7 +2465,7 @@ class PlayingManager:
                     prepared['image'] = image_bytes
                 audio = getBackend().getTrackAudio(
                     str(song_storable.id),
-                    bitrate=3200 * 1000,
+                    bitrate=self.ctx.config.play_quality,
                 )
                 prepared['music_url'] = audio.url
             except Exception as e:

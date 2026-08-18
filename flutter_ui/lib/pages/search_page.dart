@@ -16,12 +16,14 @@ class SearchPage extends StatefulWidget {
   final String keyword;
   final BackendStore? store;
   final ValueChanged<Folder> onFolderTap;
+  final ValueChanged<int>? onArtistTap;
 
   const SearchPage({
     super.key,
     required this.player,
     required this.keyword,
     this.store,
+    this.onArtistTap,
     required this.onFolderTap,
   });
 
@@ -155,7 +157,10 @@ class _SearchPageState extends State<SearchPage> {
                         )
                       : isSongs
                           ? _SongResultList(
-                              songs: _songs, player: widget.player)
+                              songs: _songs,
+                              player: widget.player,
+                              onArtistTap: widget.onArtistTap,
+                            )
                           : _FolderResultGrid(
                               folders: _folders,
                               onFolderTap: widget.onFolderTap,
@@ -205,8 +210,13 @@ class _TypeChip extends StatelessWidget {
 class _SongResultList extends StatelessWidget {
   final List<Song> songs;
   final PlayerState player;
+  final ValueChanged<int>? onArtistTap;
 
-  const _SongResultList({required this.songs, required this.player});
+  const _SongResultList({
+    required this.songs,
+    required this.player,
+    this.onArtistTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +231,7 @@ class _SongResultList extends StatelessWidget {
           onPlay: () => player.playSong(song),
           onInsert: () => player.queueSong(song),
           onFavorite: () => player.likeSong(song),
+          onArtistTap: (artist) => onArtistTap?.call(artist.id),
         );
       },
       separatorBuilder: (_, _) => const SizedBox(height: 2),

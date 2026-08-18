@@ -50,7 +50,15 @@ class CoreBackendService:
 
         from core.audio_player import AudioPlayer
         from core.backend import initBackend
-        from core.config import Config, loadConfig
+        from core.config import (
+            PLAINTEXT_PREFIX,
+            SECRET_PREFIX,
+            Config,
+            decryptSecret,
+            encryptSecret,
+            loadConfig,
+            saveConfig,
+        )
         from core.favorites import favorites_manager
         from core.llm import LLM
         from core.lyrics import LRCLyricParser, YRCLyricParser
@@ -77,12 +85,21 @@ class CoreBackendService:
         _progress('Logging in...')
         if cfg.session is None:
             snapshot = backend.loginViaAnonymousAccount()
-            cfg.session = snapshot.session
+            # 会话加密存储(Windows DPAPI / 其他平台 base64 混淆)。
+            cfg.session = encryptSecret(snapshot.session)
             cfg.login_status = snapshot.login_status
             _logger.info('logged into generated anonymous account')
         else:
-            backend.loadSession(cfg.session)
+            raw_session = cfg.session
+            if raw_session.startswith((SECRET_PREFIX, PLAINTEXT_PREFIX)):
+                raw_session = decryptSecret(raw_session)
+            backend.loadSession(raw_session)
             _logger.info('loaded session from config')
+            if not cfg.session.startswith((SECRET_PREFIX, PLAINTEXT_PREFIX)):
+                # 旧版明文 session 升级为加密存储。
+                cfg.session = encryptSecret(cfg.session)
+                saveConfig()
+                _logger.info('upgraded plaintext session to encrypted storage')
 
             if (
                 cfg.login_method == 'cell phone'

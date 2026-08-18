@@ -30,7 +30,12 @@ class FolderCard extends StatelessWidget {
           children: [
             Stack(
               children: [
-                CoverImage(seed: folder.id, size: width, radius: BorderRadius.circular(10)),
+                CoverImage(
+                  seed: folder.id,
+                  size: width,
+                  radius: BorderRadius.circular(10),
+                  url: folder.coverUrl,
+                ),
                 Positioned(
                   right: 6,
                   bottom: 6,

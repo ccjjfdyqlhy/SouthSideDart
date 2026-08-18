@@ -195,7 +195,7 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             return None
         artists_raw = song.get('ar', song.get('artists', []))
         cached = getCachedHashes(str(song_id))
-        return SongStorable(
+        storable = SongStorable(
             info=SongInfo(
                 name=str(song.get('name', '')),
                 artists=[
@@ -211,6 +211,15 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
             image_cache_hash=cached.get('image_cache_hash', ''),
             content_cache_hash=cached.get('content_cache_hash', ''),
         )
+        # 携带专辑/封面信息(供 UI 直接显示真实封面)。
+        album = song.get('al') or song.get('album') or {}
+        storable.album_name = str(
+            album.get('name', '') if isinstance(album, dict) else album
+        )
+        storable.cover_url = str(
+            album.get('picUrl', '') if isinstance(album, dict) else ''
+        )
+        return storable
 
     def _songsFromApiSongs(self, songs: object) -> list[SongStorable]:
         if not isinstance(songs, list):

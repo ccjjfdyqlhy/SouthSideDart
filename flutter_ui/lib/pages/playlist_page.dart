@@ -106,7 +106,12 @@ class _QueueTile extends StatelessWidget {
     final colors = context.colors;
     return ListTile(
       onTap: onPlay,
-      leading: CoverImage(seed: song.id, size: 40, radius: BorderRadius.circular(4)),
+      leading: CoverImage(
+        seed: song.id,
+        size: 40,
+        radius: BorderRadius.circular(4),
+        url: song.coverUrl,
+      ),
       title: Text(
         song.name,
         maxLines: 1,

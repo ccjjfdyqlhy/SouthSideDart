@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -30,6 +31,14 @@ class PlayerState extends ChangeNotifier {
   Timer? _pollTimer;
   bool _syncing = false;
 
+  /// 内核最近一次报告的播放索引(用于检测内核切歌)。
+  int _backendIndex = -1;
+
+  /// 是否已完成首次同步(用于启动恢复进度)。
+  bool _everSynced = false;
+
+  final Random _random = Random();
+
   static const _tickMs = 100;
   static const _pollMs = 800;
 
@@ -45,8 +54,10 @@ class PlayerState extends ChangeNotifier {
 
   bool get connected => backend != null && backend!.isConnected;
 
-  /// 当前歌词行索引。
+  /// 当前歌词行索引;前奏(第一句开始前)返回 -1 表示无歌词。
   int currentLyricIndex(List<LyricLine> lyrics) {
+    if (lyrics.isEmpty) return -1;
+    if (positionMs < lyrics.first.timeMs) return -1;
     var idx = 0;
     for (var i = 0; i < lyrics.length; i++) {
       if (positionMs >= lyrics[i].timeMs) idx = i;
@@ -60,6 +71,28 @@ class PlayerState extends ChangeNotifier {
     client.onEvent = _onBackendEvent;
     _startPolling();
     _refreshFromBackend();
+    loadPlayMethod();
+    loadLikedSongs();
+  }
+
+  /// 从内核拉取"我喜欢的音乐"歌曲 id,初始化红心状态。
+  Future<void> loadLikedSongs() async {
+    final client = backend;
+    if (client == null || !client.isConnected) return;
+    try {
+      final r = await client.call('get_liked_songs');
+      final data = (r['result'] as Map<String, dynamic>?) ?? {};
+      final ids = ((data['ids'] as List?) ?? const []);
+      _likedSongs
+        ..clear()
+        ..addAll(
+          ids
+              .map((e) => int.tryParse(e.toString()))
+              .whereType<int>()
+              .toList(),
+        );
+      notifyListeners();
+    } catch (_) {}
   }
 
   void detachBackend() {
@@ -94,21 +127,38 @@ class PlayerState extends ChangeNotifier {
           .map(songFromJson)
           .toList();
       final idx = (data['current_index'] as num?)?.toInt() ?? -1;
-      final playing = (data['playing'] as bool?) ?? false;
-      final position = ((data['position'] as num?)?.toDouble() ?? 0) * 1000;
 
-      final changed = list.length != playlist.length ||
-          idx != currentIndex ||
-          playing != isPlaying ||
-          (position - positionMs).abs() > 400;
-      if (changed) {
+      backendWsRunning = (data['ws_running'] as bool?) ?? backendWsRunning;
+      backendPlaylistSize = list.length;
+
+      // 内核切歌(current_index 变化)才同步歌曲与进度;
+      // 播放状态与进度由本地权威,避免无音频环境下被拉回。
+      final kernelChanged = idx >= 0 && idx != _backendIndex;
+      if (kernelChanged) {
+        _backendIndex = idx;
+        currentIndex = idx;
+        // 首次同步/恢复时采用内核进度(如启动恢复的 last_playing_time)。
+        if (!_everSynced) {
+          _everSynced = true;
+          positionMs =
+              ((data['position'] as num?)?.toDouble() ?? 0) * 1000;
+        } else {
+          positionMs = 0;
+        }
         playlist
           ..clear()
           ..addAll(list);
-        currentIndex = idx;
-        isPlaying = playing;
-        positionMs = position;
-        backendPlaylistSize = list.length;
+        notifyListeners();
+      } else if (list.length != playlist.length) {
+        // 队列增删(插入/移除/清空):同步列表,尽量保持当前歌曲。
+        final cur = currentSong;
+        playlist
+          ..clear()
+          ..addAll(list);
+        if (cur != null && list.isNotEmpty) {
+          currentIndex = list.indexWhere((s) => s.id == cur.id);
+          if (currentIndex < 0) currentIndex = 0;
+        }
         notifyListeners();
       }
     } catch (_) {
@@ -177,10 +227,28 @@ class PlayerState extends ChangeNotifier {
   }
 
   void next() {
+    if (playlist.isEmpty) return;
+    if (shuffle && playlist.length > 1) {
+      currentIndex = _random.nextInt(playlist.length);
+    } else {
+      currentIndex = (currentIndex + 1) % playlist.length;
+    }
+    positionMs = 0;
+    notifyListeners();
     _sync('play_control', {'command': 'next'});
   }
 
   void previous() {
+    if (playlist.isEmpty) return;
+    if (positionMs > 3000) {
+      // 播放超过 3 秒:回到本曲开头。
+      positionMs = 0;
+      notifyListeners();
+      return;
+    }
+    currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+    positionMs = 0;
+    notifyListeners();
     _sync('play_control', {'command': 'previous'});
   }
 
@@ -190,14 +258,46 @@ class PlayerState extends ChangeNotifier {
     _sync('play_control', {'command': 'seek', 'position': positionMs / 1000});
   }
 
-  void toggleShuffle() {
-    shuffle = !shuffle;
+  /// 当前播放模式(Repeat list / Repeat one / Play in order / Shuffle)。
+  String playMethod = 'Repeat list';
+
+  /// 循环切换播放模式(顺序→列表循环→单曲循环→随机→智能)。
+  void cyclePlayMethod() {
+    const order = [
+      'Play in order',
+      'Repeat list',
+      'Repeat one',
+      'Shuffle',
+      'Intelligent',
+    ];
+    final idx = order.indexOf(playMethod);
+    playMethod = order[(idx + 1) % order.length];
+    shuffle = playMethod == 'Shuffle';
     notifyListeners();
-    // 随机/列表循环写入内核配置。
-    _sync('set_config', {
-      'key': 'play_method',
-      'value': shuffle ? 'Shuffle' : 'Repeat list',
-    });
+    _sync('set_config', {'key': 'play_method', 'value': playMethod});
+  }
+
+  void setPlayMethod(String method) {
+    playMethod = method;
+    shuffle = method == 'Shuffle';
+    notifyListeners();
+    _sync('set_config', {'key': 'play_method', 'value': method});
+  }
+
+  /// 启动时从内核读取播放模式。
+  Future<void> loadPlayMethod() async {
+    final client = backend;
+    if (client == null || !client.isConnected) return;
+    try {
+      final r = await client.call('get_config');
+      final data = (r['result'] as Map<String, dynamic>?) ?? {};
+      final m = data['play_method'];
+      if (m is String && m.isNotEmpty) {
+        playMethod = m;
+        shuffle = m == 'Shuffle';
+        notifyListeners();
+      }
+    } catch (_) {}
   }
 
   /// 歌曲插入队列(内核在 current_index+2 处插入)。
@@ -238,6 +338,23 @@ class PlayerState extends ChangeNotifier {
     _sync('like_song', {'song_id': song.id.toString()});
   }
 
+  final Set<int> _likedSongs = {};
+
+  bool isLiked(int songId) => _likedSongs.contains(songId);
+
+  /// 红心切换:收藏/取消收藏。
+  void toggleLike(Song song) {
+    if (song.id <= 0) return;
+    if (_likedSongs.contains(song.id)) {
+      _likedSongs.remove(song.id);
+      _sync('unlike_song', {'song_id': song.id.toString()});
+    } else {
+      _likedSongs.add(song.id);
+      _sync('like_song', {'song_id': song.id.toString()});
+    }
+    notifyListeners();
+  }
+
   void syncFromBackend() {
     _refreshFromBackend();
   }
@@ -266,7 +383,12 @@ class PlayerState extends ChangeNotifier {
     _ticker = Timer.periodic(const Duration(milliseconds: _tickMs), (_) {
       if (!isPlaying) return;
       positionMs += _tickMs;
-      notifyListeners();
+      if (durationMs > 0 && positionMs >= durationMs) {
+        // 播放结束:自动切下一首(本地权威 + 转发内核)。
+        next();
+      } else {
+        notifyListeners();
+      }
     });
   }
 

@@ -84,6 +84,8 @@ class Config:
 
     target_lufs: int = -16
 
+    play_quality: int = 3200000  # 音质 bitrate(128k/320k/3200k 无损)
+
     session: str | None = None
     login_status: dict | None = None
     login_method: Literal['anonymous', 'cell phone', 'QR code', 'cookie'] = 'anonymous'

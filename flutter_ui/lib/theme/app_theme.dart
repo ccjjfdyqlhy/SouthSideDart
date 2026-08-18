@@ -393,6 +393,52 @@ class AppThemeRegistry {
 
   static ThemeSpec byId(String id) =>
       specs.firstWhere((s) => s.id == id, orElse: () => specs.first);
+
+  /// 由用户选定的基色派生一套自定义主题(明暗 + 渐变)。
+  static ThemeSpec custom(Color base) {
+    return ThemeSpec(
+      id: 'custom',
+      name: '自定义',
+      gradientStart: base,
+      gradientEnd: Color.lerp(base, Colors.black, 0.3)!,
+      light: AppColors(
+        background: const Color(0xFFF5F5F7),
+        card: Colors.white,
+        cardHover: const Color(0xFFEDEDF2),
+        sidebar: const Color(0xFFEBEBEF),
+        sidebarHover: const Color(0xFFDEDEE4),
+        divider: const Color(0xFFE1E1E8),
+        textPrimary: const Color(0xFF1D1D1F),
+        textSecondary: const Color(0xFF55555C),
+        textTertiary: const Color(0xFF8E8E96),
+        accent: base,
+        accentHover: Color.lerp(base, Colors.white, 0.25)!,
+        danger: const Color(0xFFC42B1C),
+        hoverLayer: const Color(0x0D000000),
+        glass: const Color(0xCCFFFFFF),
+        glassBorder: const Color(0x2EFFFFFF),
+        lyricInactive: const Color(0x99333333),
+      ),
+      dark: AppColors(
+        background: const Color(0xFF141416),
+        card: const Color(0xFF202024),
+        cardHover: const Color(0xFF29292E),
+        sidebar: const Color(0xFF0C0C0F),
+        sidebarHover: const Color(0xFF18181C),
+        divider: const Color(0xFF2E2E34),
+        textPrimary: const Color(0xFFF5F5F7),
+        textSecondary: const Color(0xFFA6A6AF),
+        textTertiary: const Color(0xFF6E6E76),
+        accent: Color.lerp(base, Colors.white, 0.25)!,
+        accentHover: Color.lerp(base, Colors.white, 0.42)!,
+        danger: const Color(0xFFE5484D),
+        hoverLayer: const Color(0x14FFFFFF),
+        glass: const Color(0xB3202024),
+        glassBorder: const Color(0x2EFFFFFF),
+        lyricInactive: const Color(0x99D0D0D6),
+      ),
+    );
+  }
 }
 
 class AppTheme {

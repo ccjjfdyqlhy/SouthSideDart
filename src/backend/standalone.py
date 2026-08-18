@@ -32,6 +32,9 @@ if _SRC_DIR not in sys.path:
 # 默认 TCP RPC 端口(供 Flutter/外部 UI 连接)。
 DEFAULT_TCP_PORT = 15490
 
+# 启动时恢复的播放位置(未播放时 get_playback 返回它)。
+_RESTORED_POSITION = 0.0
+
 from backend.core_context import CoreContext
 from backend.protocol import encode_error, encode_response, parse_request
 from backend.service import CoreBackendService
@@ -50,6 +53,13 @@ from services.events import (
 # ---------------------------------------------------------------------------
 # 序列化辅助
 # ---------------------------------------------------------------------------
+
+def _https(url: str) -> str:
+    """把 http:// 封面地址升级为 https,避免客户端混合内容限制。"""
+    if isinstance(url, str) and url.startswith('http://'):
+        return 'https://' + url[7:]
+    return url if isinstance(url, str) else ''
+
 
 def _artist_to_dict(artist: Any) -> dict[str, Any]:
     return {
@@ -70,20 +80,22 @@ def _song_to_dict(song: Any) -> dict[str, Any]:
             'duration': 0,
         }
     album = getattr(song, 'album', None)
+    album_name = getattr(song, 'album_name', '') or (
+        getattr(album, 'name', '')
+        if album is not None and not isinstance(album, (str, bytes))
+        else str(album) if isinstance(album, (str, bytes)) else ''
+    )
+    cover_url = getattr(song, 'cover_url', '') or (
+        getattr(album, 'cover_url', '')
+        if album is not None and not isinstance(album, (str, bytes))
+        else ''
+    )
     return {
         'id': str(getattr(song, 'id', '')),
         'name': str(getattr(song, 'name', '')),
         'artists': [_artist_to_dict(a) for a in getattr(song, 'artists', [])],
-        'album': (
-            getattr(album, 'name', '')
-            if isinstance(album, (str, bytes))
-            else getattr(album, 'name', '') if album is not None else ''
-        ),
-        'cover_url': (
-            getattr(album, 'cover_url', '')
-            if album is not None and not isinstance(album, (str, bytes))
-            else ''
-        ),
+        'album': album_name,
+        'cover_url': _https(cover_url),
         'duration': int(getattr(song, 'duration', 0) or 0),
     }
 
@@ -92,7 +104,7 @@ def _cloud_folder_to_dict(folder: Any) -> dict[str, Any]:
     return {
         'id': str(getattr(folder, 'id', '')),
         'name': str(getattr(folder, 'folder_name', '')),
-        'cover_url': str(getattr(folder, 'image_url', '') or ''),
+        'cover_url': _https(str(getattr(folder, 'image_url', '') or '')),
         'song_count': int(getattr(folder, 'song_count', 0) or 0),
         'type': 'cloud',
     }
@@ -105,7 +117,9 @@ def _search_song_to_dict(song: Any) -> dict[str, Any]:
         'name': str(getattr(song, 'name', '')),
         'artists': [_artist_to_dict(a) for a in getattr(song, 'artists', [])],
         'album': getattr(album, 'name', '') if album is not None else '',
-        'cover_url': getattr(album, 'cover_url', '') if album is not None else '',
+        'cover_url': _https(
+            getattr(album, 'cover_url', '') if album is not None else ''
+        ),
         'duration': int(getattr(song, 'duration', 0) or 0),
     }
 
@@ -130,6 +144,32 @@ def _lrc_lines(lrc_text: str) -> list[dict[str, Any]]:
         })
     lines.sort(key=lambda x: x['time'])
     return lines
+
+
+def _api_song_to_dict(song: dict[str, Any]) -> dict[str, Any]:
+    """把 pyncm API 的歌曲 dict(ar/al/dt)转为统一 JSON。"""
+    album = song.get('al') or {}
+    return {
+        'id': str(song.get('id', '')),
+        'name': str(song.get('name', '')),
+        'artists': [
+            {'id': str(a.get('id', '')), 'name': str(a.get('name', ''))}
+            for a in (song.get('ar') or [])
+        ],
+        'album': str(album.get('name', '')),
+        'cover_url': _https(str(album.get('picUrl', ''))),
+        'duration': int(song.get('dt') or 0),
+    }
+
+
+def _cloud_folder_from_api(playlist: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'id': str(playlist.get('id', '')),
+        'name': str(playlist.get('name', '')),
+        'cover_url': _https(str(playlist.get('coverImgUrl', '') or '')),
+        'song_count': int(playlist.get('trackCount', 0) or 0),
+        'type': 'cloud',
+    }
 
 
 def _song_from_payload(payload: dict[str, Any]) -> Any:
@@ -198,6 +238,7 @@ def _handle_request(
                 'data_cleanup_enabled': cfg.data_cleanup_enabled,
                 'target_lufs': cfg.target_lufs,
                 'show_translation': cfg.show_translation,
+                'play_quality': cfg.play_quality,
             },
         )
 
@@ -232,15 +273,22 @@ def _handle_request(
             )
         song = manager.current_song
         duration = float(getattr(song, 'duration', 0) or 0) / 1000
+        position = float(player.getPosition()) if player else 0.0
+        if not (player and player.isPlaying()):
+            position = max(position, _RESTORED_POSITION)
         return encode_response(
             request_id,
             {
                 'playing': bool(player and player.isPlaying()),
                 'song': _song_to_dict(song),
-                'position': float(player.getPosition()) if player else 0.0,
+                'position': position,
                 'duration': duration,
                 'playlist': [_song_to_dict(s) for s in manager.playlist],
                 'current_index': manager.current_index,
+                'ws_running': bool(
+                    ctx.ws_server and ctx.ws_server.is_alive()
+                ),
+                'initialized': ctx.player is not None,
             },
         )
 
@@ -306,13 +354,40 @@ def _handle_request(
         from core.backend import getBackend
 
         try:
-            folders = getBackend().getUserPlaylists() or []
-            return encode_response(
-                request_id,
-                {'folders': [_cloud_folder_to_dict(f) for f in folders]},
-            )
+            # 红心歌单(我喜欢的音乐)固定在最前,其余为用户创建的歌单。
+            result: list[dict[str, Any]] = []
+            liked_id: str | None = None
+            try:
+                liked = getBackend().getLikedPlaylist()
+                if liked is not None:
+                    liked_dict = _cloud_folder_to_dict(liked)
+                    liked_id = liked_dict['id']
+                    result.append(liked_dict)
+            except Exception:
+                # 红心歌单失败不影响其余歌单。
+                liked = None
+            for folder in getBackend().getUserPlaylists() or []:
+                fd = _cloud_folder_to_dict(folder)
+                if fd['id'] != liked_id:
+                    result.append(fd)
+            return encode_response(request_id, {'folders': result})
         except Exception as exc:
             return encode_error(request_id, f'get user playlists failed: {exc}')
+
+    if method == 'get_liked_songs':
+        from core.backend import getBackend
+
+        try:
+            liked = getBackend().getLikedPlaylist()
+            if liked is None:
+                return encode_response(request_id, {'ids': []})
+            tracks = getBackend().getPlaylistTracks(str(liked.id)) or []
+            return encode_response(
+                request_id,
+                {'ids': [str(song.id) for song in tracks]},
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get liked songs failed: {exc}')
 
     if method == 'folder_songs':
         from core.backend import getBackend
@@ -450,6 +525,7 @@ def _handle_request(
             'lyrics_smooth_factor': float,
             'enable_desktop_lyrics': bool,
             'target_lufs': int,
+            'play_quality': int,
         }
         if key not in allowed:
             return encode_error(request_id, f'config key not allowed: {key}')
@@ -608,6 +684,249 @@ def _handle_request(
         except Exception as exc:
             return encode_error(request_id, f'add comment failed: {exc}')
 
+    if method == 'get_account_info':
+        from core.backend import getBackend
+
+        try:
+            info = getBackend().getAccountInfo()
+            return encode_response(
+                request_id,
+                {
+                    'logged_in': bool(info.logged_in),
+                    'nickname': str(info.nickname or ''),
+                    'avatar_url': str(info.avatar_url or ''),
+                    'user_id': str(info.user_id) if info.user_id else '',
+                    'vip_type': str(info.vip_type or ''),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get account info failed: {exc}')
+
+    if method == 'login_qr_create':
+        from core.backend import getBackend
+
+        try:
+            info = getBackend().createLoginQRCode()
+            qr_b64 = ''
+            try:
+                import base64
+                import io
+
+                import qrcode
+
+                img = qrcode.make(info.url)
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                qr_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+            except Exception:
+                pass
+            return encode_response(
+                request_id,
+                {'key': info.key, 'url': info.url, 'qr_base64': qr_b64},
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'create qr code failed: {exc}')
+
+    if method == 'login_qr_check':
+        from core.backend import getBackend
+
+        key = str(params.get('key') or '')
+        if not key:
+            return encode_error(request_id, 'missing key')
+        try:
+            code = getBackend().checkLoginQRCode(key)
+            result: dict[str, Any] = {'code': int(code)}
+            if code == 803:
+                from core.config import encryptSecret, saveConfig
+
+                cfg = ctx.config
+                cfg.session = encryptSecret(getBackend().dumpSession())
+                cfg.login_status = getBackend().getCurrentLoginStatus()
+                cfg.login_method = 'QR code'
+                saveConfig()
+                result['logged_in'] = True
+            return encode_response(request_id, result)
+        except Exception as exc:
+            return encode_error(request_id, f'check qr code failed: {exc}')
+
+    if method == 'login_cellphone_send':
+        from core.backend import getBackend
+
+        phone = str(params.get('phone') or '').strip()
+        if not phone:
+            return encode_error(request_id, 'missing phone')
+        try:
+            ok = getBackend().sendCellphoneVerificationCode(phone)
+            return encode_response(request_id, {'ok': bool(ok)})
+        except Exception as exc:
+            return encode_error(request_id, f'send code failed: {exc}')
+
+    if method == 'login_cellphone_verify':
+        from core.backend import getBackend
+
+        phone = str(params.get('phone') or '').strip()
+        captcha = str(params.get('code') or '').strip()
+        if not phone or not captcha:
+            return encode_error(request_id, 'missing phone or code')
+        try:
+            from core.config import encryptSecret, saveConfig
+
+            snapshot = getBackend().loginViaCellphone(phone, captcha)
+            cfg = ctx.config
+            cfg.session = encryptSecret(snapshot.session)
+            cfg.login_status = snapshot.login_status
+            cfg.login_method = 'cell phone'
+            saveConfig()
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'cellphone login failed: {exc}')
+
+    if method == 'login_cookie':
+        from core.backend import getBackend
+
+        cookie = str(params.get('cookie') or '').strip()
+        if not cookie:
+            return encode_error(request_id, 'missing cookie')
+        try:
+            from core.config import encryptSecret, saveConfig
+
+            snapshot = getBackend().loginViaCookie(cookie)
+            cfg = ctx.config
+            cfg.session = encryptSecret(snapshot.session)
+            cfg.login_status = snapshot.login_status
+            cfg.login_method = 'cookie'
+            saveConfig()
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'cookie login failed: {exc}')
+
+    if method == 'logout':
+        from core.backend import getBackend
+
+        try:
+            getBackend().logout()
+            cfg = ctx.config
+            cfg.session = None
+            cfg.login_status = None
+            cfg.login_method = None
+            from core.config import saveConfig
+
+            saveConfig()
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'logout failed: {exc}')
+
+    if method == 'get_artist':
+        from pyncm import apis
+
+        artist_id = str(params.get('artist_id') or '')
+        if not artist_id:
+            return encode_error(request_id, 'missing artist_id')
+        try:
+            detail = apis.artist.getArtistDetails(artist_id)
+            artist = (detail.get('data') or {}).get('artist') or {}
+            tracks = apis.artist.getArtistTracks(artist_id, limit=50)
+            albums = apis.artist.getArtistAlbums(artist_id, limit=20)
+            return encode_response(
+                request_id,
+                {
+                    'id': str(artist.get('id', '')),
+                    'name': str(artist.get('name', '')),
+                    'avatar_url': _https(str(artist.get('avatar', '') or '')),
+                    'brief': str(artist.get('briefDesc', '') or ''),
+                    'music_count': int(artist.get('musicSize', 0) or 0),
+                    'album_count': int(artist.get('albumSize', 0) or 0),
+                    'hot_songs': [
+                        _api_song_to_dict(s) for s in (tracks.get('songs') or [])
+                    ],
+                    'albums': [
+                        {
+                            'id': str(a.get('id', '')),
+                            'name': str(a.get('name', '')),
+                            'cover_url': str(a.get('picUrl', '') or ''),
+                            'song_count': int(a.get('size', 0) or 0),
+                        }
+                        for a in (albums.get('hotAlbums') or [])
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get artist failed: {exc}')
+
+    if method == 'get_album_tracks':
+        from pyncm import apis
+
+        album_id = str(params.get('album_id') or '')
+        if not album_id:
+            return encode_error(request_id, 'missing album_id')
+        try:
+            info = apis.album.getAlbumInfo(album_id)
+            album = info.get('album') or {}
+            return encode_response(
+                request_id,
+                {
+                    'id': str(album.get('id', '')),
+                    'name': str(album.get('name', '')),
+                    'cover_url': str(album.get('picUrl', '') or ''),
+                    'artist': str(
+                        ((album.get('artist') or {}).get('name') or '')
+                    ),
+                    'songs': [
+                        _api_song_to_dict(s) for s in (info.get('songs') or [])
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get album tracks failed: {exc}')
+
+    if method == 'get_user':
+        from pyncm import apis
+
+        user_id = str(params.get('user_id') or '')
+        if not user_id:
+            return encode_error(request_id, 'missing user_id')
+        try:
+            profile = (apis.user.getUserDetail(user_id) or {}).get('profile') or {}
+            playlists = (
+                apis.user.getUserPlaylists(user_id) or {}
+            ).get('playlist') or []
+            return encode_response(
+                request_id,
+                {
+                    'user_id': str(profile.get('userId', '')),
+                    'nickname': str(profile.get('nickname', '')),
+                    'avatar_url': _https(
+                        str(profile.get('avatarUrl', '') or '')
+                    ),
+                    'signature': str(profile.get('signature', '') or ''),
+                    'event_count': int(profile.get('eventCount', 0) or 0),
+                    'playlists': [
+                        _cloud_folder_from_api(p) for p in playlists
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get user failed: {exc}')
+
+    if method == 'download_song':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            bitrate = int(params.get('bitrate') or 3200000)
+            audio = getBackend().getTrackAudio(song_id, bitrate)
+            return encode_response(
+                request_id,
+                {
+                    'url': _https(str(audio.url)),
+                    'size': int(getattr(audio, 'size', 0) or 0),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'download song failed: {exc}')
+
     if method == 'play_control':
         command = params.get('command')
         player = ctx.player
@@ -641,6 +960,20 @@ def _handle_request(
         return encode_response(request_id, {'ok': True})
 
     if method == 'shutdown':
+        # 持久化播放状态,下次启动自动恢复。
+        player = ctx.player
+        manager = ctx.playing_manager
+        cfg = ctx.config
+        if player is not None and manager is not None and cfg is not None:
+            try:
+                cfg.last_playing_time = float(player.getPosition())
+                cfg.last_playing_index = manager.current_index
+                cfg.last_playlist = manager.playlist.copy()
+                from core.config import saveConfig
+
+                saveConfig()
+            except Exception:
+                pass
         service.shutdown()
         return encode_response(request_id, {'shutdown': True})
 
@@ -774,6 +1107,11 @@ def main() -> int:
         default=DEFAULT_TCP_PORT,
         help=f'TCP RPC 端口(默认 {DEFAULT_TCP_PORT})',
     )
+    parser.add_argument(
+        '--no-tcp',
+        action='store_true',
+        help='不启动 TCP RPC(由前端子进程经 stdin/stdout 通信)',
+    )
     args = parser.parse_args()
 
     shutdown_event = threading.Event()
@@ -785,17 +1123,37 @@ def main() -> int:
     )
     service.start()
 
-    tcp_server = _make_tcp_server(service, shutdown_event, port=args.port)
-    tcp_thread = threading.Thread(
-        target=tcp_server.serve_forever,
-        name='backend-tcp',
-        daemon=True,
-    )
-    tcp_thread.start()
-    print(
-        f'[backend] tcp rpc listening on 127.0.0.1:{args.port}',
-        file=sys.stderr,
-    )
+    # 恢复上次播放队列与进度(对齐 Qt 版 last_playlist 持久化)。
+    global _RESTORED_POSITION
+    _cfg = service.context.config
+    _manager = service.context.playing_manager
+    if _cfg is not None and _manager is not None and _cfg.last_playlist:
+        try:
+            _manager.setPlaylist(list(_cfg.last_playlist))
+            if 0 <= _cfg.last_playing_index < len(_cfg.last_playlist):
+                _manager.current_index = _cfg.last_playing_index
+            _RESTORED_POSITION = float(_cfg.last_playing_time or 0)
+            print(
+                f'[backend] restored playlist ({len(_cfg.last_playlist)} '
+                f'songs, index={_cfg.last_playing_index}, '
+                f'position={_RESTORED_POSITION:.1f}s)',
+                file=sys.stderr,
+            )
+        except Exception as exc:
+            print(f'[backend] restore playlist failed: {exc}', file=sys.stderr)
+
+    if not args.no_tcp:
+        tcp_server = _make_tcp_server(service, shutdown_event, port=args.port)
+        tcp_thread = threading.Thread(
+            target=tcp_server.serve_forever,
+            name='backend-tcp',
+            daemon=True,
+        )
+        tcp_thread.start()
+        print(
+            f'[backend] tcp rpc listening on 127.0.0.1:{args.port}',
+            file=sys.stderr,
+        )
 
     def _stdin_loop() -> None:
         for line in sys.stdin:
@@ -816,7 +1174,8 @@ def main() -> int:
     thread.start()
 
     shutdown_event.wait()
-    tcp_server.shutdown()
+    if not args.no_tcp:
+        tcp_server.shutdown()
     return 0
 
 

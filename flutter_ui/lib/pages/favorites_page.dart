@@ -13,12 +13,14 @@ class FavoritesPage extends StatelessWidget {
   final PlayerState player;
   final BackendStore? store;
   final VoidCallback onPlayAll;
+  final ValueChanged<int>? onArtistTap;
 
   const FavoritesPage({
     super.key,
     required this.folder,
     required this.player,
     this.store,
+    this.onArtistTap,
     required this.onPlayAll,
   });
 
@@ -50,7 +52,12 @@ class FavoritesPage extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
             child: Row(
               children: [
-                CoverImage(seed: folder!.id, size: 120, radius: BorderRadius.circular(12)),
+                CoverImage(
+                  seed: folder!.id,
+                  size: 120,
+                  radius: BorderRadius.circular(12),
+                  url: folder!.coverUrl,
+                ),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Column(
@@ -106,7 +113,16 @@ class FavoritesPage extends StatelessWidget {
             ),
           ),
         ),
-        if (songs.isEmpty)
+        if (songs.isEmpty && (store?.loadingFolderSongs ?? false))
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          )
+        else if (songs.isEmpty)
           const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.all(24),
@@ -130,6 +146,7 @@ class FavoritesPage extends StatelessWidget {
                   onPlay: () => player.playSong(song),
                   onInsert: () => player.queueSong(song),
                   onFavorite: () => player.likeSong(song),
+                  onArtistTap: (artist) => onArtistTap?.call(artist.id),
                 );
               },
               separatorBuilder: (_, _) => const SizedBox(height: 2),

@@ -9,8 +9,11 @@ import '../theme/app_theme.dart';
 class SettingsPage extends StatefulWidget {
   final String themeId;
   final ValueChanged<String> onThemeChanged;
+  final Color? customColor;
+  final ValueChanged<Color>? onCustomColor;
   final BackendClient? client;
   final bool backendConnected;
+  final bool backendProcessMode;
   final int backendPlaylistSize;
   final bool backendWsRunning;
   final Future<void> Function() onReconnect;
@@ -19,8 +22,11 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.themeId,
     required this.onThemeChanged,
+    this.customColor,
+    this.onCustomColor,
     this.client,
     this.backendConnected = false,
+    this.backendProcessMode = false,
     this.backendPlaylistSize = 0,
     this.backendWsRunning = false,
     required this.onReconnect,
@@ -103,13 +109,19 @@ class _SettingsPageState extends State<SettingsPage> {
           current: widget.themeId,
           onChanged: widget.onThemeChanged,
         ),
+        _ColorPalette(
+          customColor: widget.customColor,
+          onSelected: widget.onCustomColor,
+        ),
         _Group(
           title: '内核连接',
           children: [
             _StatusTile(
               label: 'Python 内核',
               ok: widget.backendConnected,
-              okText: '已连接 (127.0.0.1:15490)',
+              okText: widget.backendProcessMode
+                  ? '已连接(子进程模式)'
+                  : '已连接 (127.0.0.1:15490)',
               failText: '未连接',
             ),
             _StatusTile(
@@ -498,6 +510,87 @@ class _StatusTile extends StatelessWidget {
           Text(
             ok ? okText : (failText ?? '未知'),
             style: TextStyle(fontSize: 13, color: colors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 自定义配色取色板:选择基色,自动派生一套明暗色系。
+class _ColorPalette extends StatelessWidget {
+  final Color? customColor;
+  final ValueChanged<Color>? onSelected;
+
+  const _ColorPalette({this.customColor, this.onSelected});
+
+  static const _palette = <Color>[
+    Color(0xFFE53935), // 红
+    Color(0xFFD81B60), // 玫红
+    Color(0xFFEC407A), // 粉
+    Color(0xFFFF7043), // 橙红
+    Color(0xFFFB8C00), // 橙
+    Color(0xFFFFB300), // 琥珀
+    Color(0xFFFDD835), // 黄
+    Color(0xFF43A047), // 绿
+    Color(0xFF00B96A), // 翡翠
+    Color(0xFF26A69A), // 青
+    Color(0xFF00ACC1), // 湖蓝
+    Color(0xFF1E88E5), // 蓝
+    Color(0xFF2D7FF9), // 蓝紫(默认)
+    Color(0xFF5E5CE6), // 紫
+    Color(0xFF8E24AA), // 深紫
+    Color(0xFF8D6E63), // 棕
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '自定义主色',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              for (final color in _palette)
+                InkWell(
+                  onTap: () => onSelected?.call(color),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: color,
+                      border: Border.all(
+                        color: customColor == color
+                            ? colors.textPrimary
+                            : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: customColor == color
+                        ? const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          )
+                        : null,
+                  ),
+                ),
+            ],
           ),
         ],
       ),

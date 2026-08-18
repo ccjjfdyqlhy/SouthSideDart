@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import 'common.dart';
 
 /// 侧边栏主入口。
 enum SideNavItem {
   home('首页', Icons.home_rounded),
-  library('曲库', Icons.library_music_rounded),
-  favorites('收藏', Icons.favorite_rounded),
   search('搜索', Icons.search_rounded);
 
   final String label;
@@ -19,21 +18,31 @@ enum SideNavItem {
 class Sidebar extends StatelessWidget {
   final SideNavItem current;
   final bool settingsSelected;
+
+  /// 用户主页面板激活时点亮账号区。
+  final bool userPanelActive;
   final List<Folder> folders;
   final int? selectedFolderId;
+  final Map<String, dynamic>? account;
   final ValueChanged<SideNavItem> onNavigate;
   final ValueChanged<Folder> onFolderTap;
   final VoidCallback onSettings;
+  final VoidCallback? onLogout;
+  final VoidCallback? onUserTap;
 
   const Sidebar({
     super.key,
     required this.current,
     this.settingsSelected = false,
+    this.userPanelActive = false,
     required this.folders,
     required this.selectedFolderId,
+    this.account,
     required this.onNavigate,
     required this.onFolderTap,
     required this.onSettings,
+    this.onLogout,
+    this.onUserTap,
   });
 
   @override
@@ -52,7 +61,7 @@ class Sidebar extends StatelessWidget {
             _NavTile(
               icon: item.icon,
               label: item.label,
-              selected: current == item,
+              selected: !settingsSelected && current == item,
               onTap: () => onNavigate(item),
             ),
           const SizedBox(height: 8),
@@ -62,6 +71,15 @@ class Sidebar extends StatelessWidget {
             onFolderTap: onFolderTap,
           ),
           const Spacer(),
+          if (account != null) ...[
+            _AccountTile(
+              account: account!,
+              active: userPanelActive,
+              onLogout: onLogout,
+              onTap: onUserTap,
+            ),
+            const SizedBox(height: 4),
+          ],
           _NavTile(
             icon: Icons.settings_rounded,
             label: '设置',
@@ -155,12 +173,109 @@ class _FolderSection extends StatelessWidget {
               ),
             ],
             _SectionLabel('云端', colors),
-            for (final f in cloud) _FolderTile(
-              folder: f,
-              selected: selectedFolderId == f.id,
-              onTap: () => onFolderTap(f),
-            ),
+            if (cloud.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+                child: Text(
+                  '暂无歌单',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.textTertiary,
+                  ),
+                ),
+              )
+            else
+              for (final f in cloud) _FolderTile(
+                folder: f,
+                selected: selectedFolderId == f.id,
+                onTap: () => onFolderTap(f),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部账号信息(头像 + 昵称 + 登出),点击头像/昵称打开用户主页。
+class _AccountTile extends StatelessWidget {
+  final Map<String, dynamic> account;
+  final bool active;
+  final VoidCallback? onLogout;
+  final VoidCallback? onTap;
+
+  const _AccountTile({
+    required this.account,
+    this.active = false,
+    this.onLogout,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final loggedIn = account['logged_in'] == true;
+    final nickname = (account['nickname'] ?? '').toString();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Material(
+        color: active ? colors.hoverLayer : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: colors.accent,
+                child: Text(
+                  nickname.isNotEmpty ? nickname.characters.first : '?',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      loggedIn && nickname.isNotEmpty ? nickname : '未登录',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      loggedIn ? '已登录' : '点击右上角登录',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onLogout != null)
+                IconBtn(
+                  icon: Icons.logout_rounded,
+                  size: 16,
+                  tooltip: '退出登录',
+                  color: colors.textSecondary,
+                  onTap: onLogout,
+                ),
+            ],
+          ),
+        ),
         ),
       ),
     );

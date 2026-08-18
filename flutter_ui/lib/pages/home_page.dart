@@ -14,16 +14,24 @@ class HomePage extends StatelessWidget {
   final List<Folder> folders;
   final List<Song> songs;
 
+  /// 用户自己的歌单(云端),来自 ``user_playlists``。
+  final List<Folder> userFolders;
+
   /// 模式卡点击回调(heart/fm/radar/similar),连接内核时触发真实播放模式。
   final ValueChanged<String>? onModeTap;
   final ValueChanged<Folder> onFolderTap;
+
+  /// 点击歌手名打开歌手页。
+  final ValueChanged<int>? onArtistTap;
 
   const HomePage({
     super.key,
     required this.player,
     this.folders = const [],
     this.songs = const [],
+    this.userFolders = const [],
     this.onModeTap,
+    this.onArtistTap,
     required this.onFolderTap,
   });
 
@@ -81,6 +89,48 @@ class HomePage extends StatelessWidget {
             ),
           ),
         ),
+        if (userFolders.isNotEmpty) ...[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            sliver: SliverToBoxAdapter(
+              child: SectionHeader(
+                title: '我的歌单',
+                trailing: Text(
+                  '${userFolders.length}',
+                  style: TextStyle(fontSize: 15, color: colors.textTertiary),
+                ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.crossAxisExtent;
+                final cardW = ((width - 60) / 5).clamp(96.0, 190.0);
+                return SliverGrid(
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: cardW + 16,
+                    mainAxisSpacing: 20,
+                    crossAxisSpacing: 16,
+                    childAspectRatio: cardW / (cardW + 64),
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final f = userFolders[index];
+                      return FolderCard(
+                        folder: f,
+                        width: cardW,
+                        onTap: () => onFolderTap(f),
+                      );
+                    },
+                    childCount: userFolders.length,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
           sliver: SliverToBoxAdapter(
@@ -106,13 +156,13 @@ class HomePage extends StatelessWidget {
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.crossAxisExtent;
-                final cardW = ((width - 36) / 4).clamp(120.0, 260.0);
+                final cardW = ((width - 60) / 5).clamp(96.0, 190.0);
                 return SliverGrid(
                   gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: cardW + 16,
                     mainAxisSpacing: 20,
                     crossAxisSpacing: 16,
-                    childAspectRatio: cardW / (cardW + 52),
+                    childAspectRatio: cardW / (cardW + 64),
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
@@ -160,6 +210,7 @@ class HomePage extends StatelessWidget {
                   onPlay: () => player.playSong(song),
                   onInsert: () => player.queueSong(song),
                   onFavorite: () => player.likeSong(song),
+                  onArtistTap: (artist) => onArtistTap?.call(artist.id),
                 );
               },
               separatorBuilder: (_, _) => const SizedBox(height: 2),

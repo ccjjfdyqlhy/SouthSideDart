@@ -3,21 +3,47 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../theme/app_theme.dart';
 
-/// 占位封面:渐变 + 音符图标,后续替换为真实封面图。
+/// 封面图:有真实 URL 显示网络图(带占位兜底),否则渐变 + 音符占位。
 class CoverImage extends StatelessWidget {
   final int seed;
   final double size;
   final BorderRadius? radius;
+  final String? url;
 
   const CoverImage({
     super.key,
     required this.seed,
     required this.size,
     this.radius,
+    this.url,
   });
 
   @override
   Widget build(BuildContext context) {
+    final placeholder = _placeholder(seed, size);
+    if (url == null || url!.isEmpty) return placeholder;
+    return ClipRRect(
+      borderRadius: radius ?? BorderRadius.circular(size * 0.08),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Image.network(
+          url!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          frameBuilder: (context, child, frame, wasSync) {
+            if (wasSync || frame != null) return child;
+            return placeholder;
+          },
+          errorBuilder: (context, error, stack) => placeholder,
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder(int seed, double size) {
     final base = coverColorFor(seed);
     return ClipRRect(
       borderRadius: radius ?? BorderRadius.circular(size * 0.08),
