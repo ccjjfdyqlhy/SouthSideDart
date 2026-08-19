@@ -356,6 +356,44 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  /// 新建云端歌单:弹出输入框,调用内核创建后刷新列表。
+  Future<void> _createFolder() async {
+    final store = _store;
+    if (store == null || !store.client.isConnected) return;
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建歌单'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '输入歌单名称'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    final ok = await store.createPlaylist(name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? '已创建歌单' : '创建歌单失败'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   /// 打开歌手页(右面板,自动收起全屏播放页)。
   void _openArtist(int artistId) {
     if (artistId <= 0) return;
@@ -455,6 +493,7 @@ class _HomeShellState extends State<HomeShell> {
                       onSettings: _openSettings,
                       onLogout: _logout,
                       onUserTap: _openUser,
+                      onCreateFolder: _createFolder,
                     ),
                     Expanded(child: _buildContent()),
                   ],
@@ -611,6 +650,7 @@ class _HomeShellState extends State<HomeShell> {
           folders: folders,
           songs: songs,
           userFolders: store?.cloudFolders ?? const <Folder>[],
+          account: _account,
           onModeTap: _playMode,
           onArtistTap: _openArtist,
           onFolderTap: _openFolder,

@@ -128,6 +128,34 @@ class BackendStore extends ChangeNotifier {
     }
   }
 
+  /// 新建云端歌单,成功后刷新歌单列表。
+  Future<bool> createPlaylist(String name) async {
+    if (!client.isConnected || name.trim().isEmpty) return false;
+    try {
+      final r = await client.call('create_playlist', {'name': name.trim()});
+      if (r['result'] == null) return false;
+      await loadPlaylists(force: true);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 删除云端歌单,成功后刷新歌单列表。
+  Future<bool> removePlaylist(int playlistId) async {
+    if (!client.isConnected || playlistId <= 0) return false;
+    try {
+      final r = await client.call('remove_playlist', {
+        'playlist_id': playlistId.toString(),
+      });
+      if (r['result'] == null) return false;
+      await loadPlaylists(force: true);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 搜索歌曲或歌单。
   Future<List<Song>> searchSongs(String query) async {
     if (!client.isConnected || query.isEmpty) return const [];

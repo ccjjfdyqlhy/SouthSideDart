@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import '../services/backend_client.dart';
 import '../theme/app_theme.dart';
 
-enum _LoginTab { qr, phone, cookie }
+enum _LoginTab { qr, phone, email, cookie }
 
-/// 登录引导页:二维码 / 手机验证码 / COOKIE 三种方式(对齐 Qt 版)。
+/// 登录引导页:二维码 / 手机验证码 / 邮箱 / COOKIE 四种方式(对齐 Qt 版)。
 class LoginPage extends StatefulWidget {
   final BackendClient client;
   final VoidCallback onLoginSuccess;
@@ -43,10 +43,19 @@ class _LoginPageState extends State<LoginPage> {
   int _countdown = 0;
   Timer? _countdownTimer;
 
+  // 邮箱
+  final TextEditingController _emailCtrl = TextEditingController();
+  final TextEditingController _emailPwdCtrl = TextEditingController();
+
+  // 注册(手机)
+  final TextEditingController _regNicknameCtrl = TextEditingController();
+  final TextEditingController _regPasswordCtrl = TextEditingController();
+
   // COOKIE
   final TextEditingController _cookieCtrl = TextEditingController();
 
   bool _busy = false;
+  bool _registerMode = false;
 
   @override
   void initState() {
@@ -60,6 +69,10 @@ class _LoginPageState extends State<LoginPage> {
     _countdownTimer?.cancel();
     _phoneCtrl.dispose();
     _codeCtrl.dispose();
+    _emailCtrl.dispose();
+    _emailPwdCtrl.dispose();
+    _regNicknameCtrl.dispose();
+    _regPasswordCtrl.dispose();
     _cookieCtrl.dispose();
     super.dispose();
   }
@@ -213,6 +226,59 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// 邮箱密码登录(pyncm login.loginViaEmail)。
+  Future<void> _emailLogin() async {
+    final email = _emailCtrl.text.trim();
+    final password = _emailPwdCtrl.text;
+    if (email.isEmpty || password.isEmpty) {
+      _showError('请输入邮箱和密码');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.client.call('login_email', {
+        'email': email,
+        'password': password,
+      });
+      if (!mounted) return;
+      setState(() => _busy = false);
+      widget.onLoginSuccess();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _showError('登录失败:$e');
+    }
+  }
+
+  /// 手机号注册(pyncm login.setRegisterAccountViaCellphone)。
+  Future<void> _registerAccount() async {
+    final phone = _phoneCtrl.text.trim();
+    final code = _codeCtrl.text.trim();
+    final nickname = _regNicknameCtrl.text.trim();
+    final password = _regPasswordCtrl.text;
+    if (phone.isEmpty || code.isEmpty || nickname.isEmpty || password.isEmpty) {
+      _showError('请填写手机号、验证码、昵称和密码');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.client.call('register_cellphone', {
+        'phone': phone,
+        'code': code,
+        'nickname': nickname,
+        'password': password,
+      });
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _showError('注册成功,已自动登录');
+      widget.onLoginSuccess();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _showError('注册失败:$e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -279,6 +345,12 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(width: 8),
                   _TabChip(
+                    label: '邮箱',
+                    selected: _tab == _LoginTab.email,
+                    onTap: () => setState(() => _tab = _LoginTab.email),
+                  ),
+                  const SizedBox(width: 8),
+                  _TabChip(
                     label: 'COOKIE',
                     selected: _tab == _LoginTab.cookie,
                     onTap: () => setState(() => _tab = _LoginTab.cookie),
@@ -308,6 +380,8 @@ class _LoginPageState extends State<LoginPage> {
         return _buildQrTab();
       case _LoginTab.phone:
         return _buildPhoneTab();
+      case _LoginTab.email:
+        return _buildEmailTab();
       case _LoginTab.cookie:
         return _buildCookieTab();
     }
@@ -401,6 +475,18 @@ class _LoginPageState extends State<LoginPage> {
             child: Text(_busy ? '登录中…' : '登录'),
           ),
         ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => setState(() => _registerMode = !_registerMode),
+          child: Text(
+            _registerMode ? '← 返回登录' : '没有账号?注册新账号',
+            style: TextStyle(fontSize: 12, color: colors.textTertiary),
+          ),
+        ),
+        if (_registerMode) ...[
+          const SizedBox(height: 8),
+          _buildRegisterSection(),
+        ],
       ],
     );
   }
@@ -424,6 +510,70 @@ class _LoginPageState extends State<LoginPage> {
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: Text(_busy ? '登录中…' : '登录'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmailTab() {
+    final colors = context.colors;
+    return Column(
+      children: [
+        TextField(
+          controller: _emailCtrl,
+          keyboardType: TextInputType.emailAddress,
+          style: TextStyle(fontSize: 14, color: colors.textPrimary),
+          decoration: _inputDecoration('网易云邮箱'),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _emailPwdCtrl,
+          obscureText: true,
+          style: TextStyle(fontSize: 14, color: colors.textPrimary),
+          decoration: _inputDecoration('密码'),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: _busy ? null : _emailLogin,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            child: Text(_busy ? '登录中…' : '登录'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 手机号注册入口(可切换 登录/注册)。
+  Widget _buildRegisterSection() {
+    final colors = context.colors;
+    return Column(
+      children: [
+        TextField(
+          controller: _regNicknameCtrl,
+          style: TextStyle(fontSize: 14, color: colors.textPrimary),
+          decoration: _inputDecoration('昵称'),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _regPasswordCtrl,
+          obscureText: true,
+          style: TextStyle(fontSize: 14, color: colors.textPrimary),
+          decoration: _inputDecoration('设置密码'),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: _busy ? null : _registerAccount,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            child: Text(_busy ? '注册中…' : '注册并登录'),
           ),
         ),
       ],

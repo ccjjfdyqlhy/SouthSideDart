@@ -374,6 +374,30 @@ def _handle_request(
         except Exception as exc:
             return encode_error(request_id, f'get user playlists failed: {exc}')
 
+    if method == 'create_playlist':
+        from core.backend import getBackend
+
+        name = str(params.get('name') or '').strip()
+        if not name:
+            return encode_error(request_id, 'missing name')
+        try:
+            playlist_id = getBackend().createPlaylist(name)
+            return encode_response(request_id, {'id': str(playlist_id)})
+        except Exception as exc:
+            return encode_error(request_id, f'create playlist failed: {exc}')
+
+    if method == 'remove_playlist':
+        from core.backend import getBackend
+
+        playlist_id = str(params.get('playlist_id') or '')
+        if not playlist_id:
+            return encode_error(request_id, 'missing playlist_id')
+        try:
+            getBackend().removePlaylist(playlist_id)
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'remove playlist failed: {exc}')
+
     if method == 'get_liked_songs':
         from core.backend import getBackend
 
@@ -815,6 +839,641 @@ def _handle_request(
             return encode_response(request_id, {'ok': True})
         except Exception as exc:
             return encode_error(request_id, f'logout failed: {exc}')
+
+    if method == 'login_email':
+        from core.backend import getBackend
+
+        email = str(params.get('email') or '').strip()
+        password = str(params.get('password') or '')
+        if not email or not password:
+            return encode_error(request_id, 'missing email or password')
+        try:
+            from core.config import encryptSecret, saveConfig
+
+            snapshot = getBackend().loginViaEmail(email, password)
+            cfg = ctx.config
+            cfg.session = encryptSecret(snapshot.session)
+            cfg.login_status = snapshot.login_status
+            cfg.login_method = 'email'
+            saveConfig()
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'email login failed: {exc}')
+
+    if method == 'register_cellphone':
+        from core.backend import getBackend
+
+        phone = str(params.get('phone') or '').strip()
+        captcha = str(params.get('code') or '').strip()
+        nickname = str(params.get('nickname') or '').strip()
+        password = str(params.get('password') or '')
+        if not phone or not captcha or not nickname or not password:
+            return encode_error(request_id, 'missing phone/code/nickname/password')
+        try:
+            result = getBackend().registerViaCellphone(
+                phone, captcha, nickname, password
+            )
+            return encode_response(
+                request_id, {'code': int(result.get('code', 0))}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'register failed: {exc}')
+
+    if method == 'cellphone_registered':
+        from core.backend import getBackend
+
+        phone = str(params.get('phone') or '').strip()
+        if not phone:
+            return encode_error(request_id, 'missing phone')
+        try:
+            result = getBackend().checkCellphoneRegistered(phone)
+            registered = bool((result.get('exist') or False))
+            return encode_response(request_id, {'registered': registered})
+        except Exception as exc:
+            return encode_error(request_id, f'check registered failed: {exc}')
+
+    if method == 'refresh_login_token':
+        from core.backend import getBackend
+
+        try:
+            result = getBackend().refreshLoginToken()
+            return encode_response(request_id, {'ok': bool(result.get('code') == 200)})
+        except Exception as exc:
+            return encode_error(request_id, f'refresh token failed: {exc}')
+
+    if method == 'daily_signin':
+        from core.backend import getBackend
+
+        try:
+            dtype = 1 if params.get('dtype') == 'web' else 0
+            result = getBackend().dailySignin(dtype)
+            return encode_response(
+                request_id, {'code': int(result.get('code', 0))}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'daily signin failed: {exc}')
+
+    if method == 'user_subs':
+        from core.backend import getBackend
+
+        try:
+            sub_type = params.get('type') or 'artist'
+            if sub_type == 'album':
+                result = getBackend().getUserAlbumSubs()
+            else:
+                result = getBackend().getUserArtistSubs()
+            # 兼容 data 为 list(直接是子项) 或 dict(含 artists/albums 子键)。
+            data = result.get('data')
+            if isinstance(data, dict):
+                items = (
+                    data.get('albums')
+                    or data.get('artists')
+                    or data.get('data')
+                    or []
+                )
+            else:
+                items = data if isinstance(data, list) else []
+            if not isinstance(items, list):
+                items = []
+            return encode_response(
+                request_id,
+                {
+                    'items': [
+                        {
+                            'id': str(item.get('id', '')),
+                            'name': str(item.get('name', '')),
+                            'cover_url': _https(
+                                str(
+                                    item.get('picUrl')
+                                    or (item.get('album') or {}).get('picUrl', '')
+                                    or item.get('avatar', '')
+                                )
+                            ),
+                        }
+                        for item in items
+                        if isinstance(item, dict)
+                    ],
+                    'type': sub_type,
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get user subs failed: {exc}')
+
+    if method == 'cloud_drive':
+        from core.backend import getBackend
+
+        try:
+            limit = max(1, min(100, int(params.get('limit') or 30)))
+            offset = max(0, int(params.get('offset') or 0))
+            result = getBackend().getCloudDriveSongs(limit, offset)
+            # 兼容 data 为 list(文件列表) 或 dict(含 files 子键) 两种返回。
+            data = result.get('data')
+            if isinstance(data, dict):
+                files = (
+                    data.get('files')
+                    or data.get('data')
+                    or data.get('songs')
+                    or []
+                )
+            else:
+                files = data if isinstance(data, list) else []
+            if not isinstance(files, list):
+                files = []
+            return encode_response(
+                request_id,
+                {
+                    'items': [
+                        {
+                            'id': str(
+                                f.get('songId')
+                                or (f.get('simpleSong') or {}).get('id', '')
+                                or ''
+                            ),
+                            'name': str(
+                                f.get('songName')
+                                or (f.get('simpleSong') or {}).get('name', '')
+                                or ''
+                            ),
+                            'artist': str(
+                                f.get('artist')
+                                or ((f.get('simpleSong') or {}).get('ar') or [{}])[0]
+                                .get('name', '')
+                                or ''
+                            ),
+                            'album': str(
+                                f.get('album')
+                                or (f.get('simpleSong') or {}).get('al', {})
+                                .get('name', '')
+                                or ''
+                            ),
+                            'cover_url': _https(
+                                str(
+                                    ((f.get('simpleSong') or {}).get('al') or {})
+                                    .get('picUrl', '')
+                                )
+                            ),
+                        }
+                        for f in files
+                        if isinstance(f, dict)
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get cloud drive failed: {exc}')
+
+    if method == 'upload_cloud_song':
+        from core.backend import getBackend
+
+        file_path = str(params.get('file_path') or '')
+        if not file_path:
+            return encode_error(request_id, 'missing file_path')
+        try:
+            result = getBackend().uploadCloudSong(
+                file_path,
+                song=str(params.get('song') or ''),
+                artist=str(params.get('artist') or ''),
+                album=str(params.get('album') or ''),
+                bitrate=int(params.get('bitrate') or 128),
+            )
+            return encode_response(
+                request_id, {'song_id': result['song_id'], 'ok': True}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'upload cloud song failed: {exc}')
+
+    if method == 'get_album_comments':
+        from core.backend import getBackend
+
+        album_id = str(params.get('album_id') or '')
+        if not album_id:
+            return encode_error(request_id, 'missing album_id')
+        try:
+            offset = max(0, int(params.get('offset') or 0))
+            limit = max(1, min(50, int(params.get('limit') or 20)))
+            result = getBackend().getAlbumComments(album_id, offset, limit)
+            comments = result.get('comments') or []
+            return encode_response(
+                request_id,
+                {
+                    'total': int(result.get('total', 0) or 0),
+                    'comments': [
+                        {
+                            'id': str(c.get('commentId', '')),
+                            'content': str(c.get('content', '')),
+                            'liked_count': int(c.get('likedCount', 0) or 0),
+                            'time': str(c.get('time', 0)),
+                            'user': {
+                                'id': str((c.get('user') or {}).get('userId', '')),
+                                'avatar_url': str(
+                                    (c.get('user') or {}).get('avatarUrl', '')
+                                ),
+                                'nickname': str(
+                                    (c.get('user') or {}).get('nickname', '')
+                                ),
+                            },
+                        }
+                        for c in comments
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get album comments failed: {exc}')
+
+    if method == 'get_playlist_comments':
+        from core.backend import getBackend
+
+        playlist_id = str(params.get('playlist_id') or '')
+        if not playlist_id:
+            return encode_error(request_id, 'missing playlist_id')
+        try:
+            offset = max(0, int(params.get('offset') or 0))
+            limit = max(1, min(50, int(params.get('limit') or 20)))
+            result = getBackend().getPlaylistComments(playlist_id, offset, limit)
+            comments = result.get('comments') or []
+            return encode_response(
+                request_id,
+                {
+                    'total': int(result.get('total', 0) or 0),
+                    'comments': [
+                        {
+                            'id': str(c.get('commentId', '')),
+                            'content': str(c.get('content', '')),
+                            'liked_count': int(c.get('likedCount', 0) or 0),
+                            'time': str(c.get('time', 0)),
+                            'user': {
+                                'id': str((c.get('user') or {}).get('userId', '')),
+                                'avatar_url': str(
+                                    (c.get('user') or {}).get('avatarUrl', '')
+                                ),
+                                'nickname': str(
+                                    (c.get('user') or {}).get('nickname', '')
+                                ),
+                            },
+                        }
+                        for c in comments
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get playlist comments failed: {exc}')
+
+    if method == 'get_mv':
+        from core.backend import getBackend
+
+        mv_id = str(params.get('mv_id') or '')
+        if not mv_id:
+            return encode_error(request_id, 'missing mv_id')
+        try:
+            detail = getBackend().getMVDetail(mv_id)
+            mv = detail.get('data') or {}
+            resource = getBackend().getMVResource(mv_id, 1080)
+            urls = resource.get('data') or {}
+            return encode_response(
+                request_id,
+                {
+                    'id': str(mv.get('id', '')),
+                    'name': str(mv.get('name', '')),
+                    'artist': str(mv.get('artistName', '')),
+                    'duration': int(mv.get('duration', 0) or 0),
+                    'cover_url': _https(str(mv.get('cover', '') or '')),
+                    'play_url': _https(
+                        str((urls.get('url') or '')) if isinstance(urls, dict) else ''
+                    ),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get mv failed: {exc}')
+
+    if method == 'get_mv_comments':
+        from core.backend import getBackend
+
+        mv_id = str(params.get('mv_id') or '')
+        if not mv_id:
+            return encode_error(request_id, 'missing mv_id')
+        try:
+            offset = max(0, int(params.get('offset') or 0))
+            limit = max(1, min(50, int(params.get('limit') or 20)))
+            result = getBackend().getMVComments(mv_id, offset, limit)
+            comments = result.get('comments') or []
+            return encode_response(
+                request_id,
+                {
+                    'total': int(result.get('total', 0) or 0),
+                    'comments': [
+                        {
+                            'id': str(c.get('commentId', '')),
+                            'content': str(c.get('content', '')),
+                            'liked_count': int(c.get('likedCount', 0) or 0),
+                            'user': {
+                                'id': str((c.get('user') or {}).get('userId', '')),
+                                'nickname': str(
+                                    (c.get('user') or {}).get('nickname', '')
+                                ),
+                            },
+                        }
+                        for c in comments
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get mv comments failed: {exc}')
+
+    if method == 'radio_control':
+        from core.backend import getBackend
+
+        action = str(params.get('action') or '')
+        song_id = str(params.get('song_id') or '')
+        if not action or not song_id:
+            return encode_error(request_id, 'missing action or song_id')
+        try:
+            like = bool(params.get('like', True))
+            result = getBackend().radioControl(action, song_id, like)
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'radio control failed: {exc}')
+
+    if method == 'match_track_fp':
+        from core.backend import getBackend
+
+        audio_fp = str(params.get('audio_fp') or '')
+        if not audio_fp:
+            return encode_error(request_id, 'missing audio_fp')
+        try:
+            duration = float(params.get('duration') or 0)
+            result = getBackend().matchTrackByFP(audio_fp, duration)
+            return encode_response(
+                request_id, {'result': result}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'match track fp failed: {exc}')
+
+    if method == 'track_audio_v1':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            level = str(params.get('level') or 'standard')
+            result = getBackend().getTrackAudioV1(song_id, level)
+            data = result.get('data') or []
+            first = data[0] if isinstance(data, list) and data else {}
+            return encode_response(
+                request_id,
+                {
+                    'url': _https(str(first.get('url', ''))),
+                    'size': int(first.get('size', 0) or 0),
+                    'level': str(first.get('level', '')),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'track audio v1 failed: {exc}')
+
+    if method == 'track_download_url':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            bitrate = int(params.get('bitrate') or 320000)
+            result = getBackend().getTrackDownloadURL(song_id, bitrate)
+            data = result.get('data') or []
+            first = data[0] if isinstance(data, list) and data else {}
+            return encode_response(
+                request_id,
+                {
+                    'url': _https(str(first.get('url', ''))),
+                    'size': int(first.get('size', 0) or 0),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'track download url failed: {exc}')
+
+    if method == 'like_track':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            like = bool(params.get('like', True))
+            result = getBackend().likeTrack(song_id, like)
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'like track failed: {exc}')
+
+    if method == 'get_track_comments':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            offset = max(0, int(params.get('offset') or 0))
+            limit = max(1, min(50, int(params.get('limit') or 20)))
+            result = getBackend().getTrackComments(song_id, offset, limit)
+            comments = result.get('comments') or []
+            return encode_response(
+                request_id,
+                {
+                    'total': int(result.get('total', 0) or 0),
+                    'comments': [
+                        {
+                            'id': str(c.get('commentId', '')),
+                            'content': str(c.get('content', '')),
+                            'liked_count': int(c.get('likedCount', 0) or 0),
+                            'user': {
+                                'id': str((c.get('user') or {}).get('userId', '')),
+                                'nickname': str(
+                                    (c.get('user') or {}).get('nickname', '')
+                                ),
+                            },
+                        }
+                        for c in comments
+                    ],
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'get track comments failed: {exc}')
+
+    if method == 'login_type_switch':
+        from core.backend import getBackend
+
+        try:
+            result = getBackend().loginTypeSwitch()
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'login type switch failed: {exc}')
+
+    if method == 'track_download_url_v1':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            level = str(params.get('level') or 'standard')
+            result = getBackend().getTrackDownloadURLV1(song_id, level)
+            data = result.get('data') or []
+            first = data[0] if isinstance(data, list) and data else {}
+            return encode_response(
+                request_id,
+                {
+                    'url': _https(str(first.get('url', ''))),
+                    'size': int(first.get('size', 0) or 0),
+                    'level': str(first.get('level', '')),
+                },
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'track download url v1 failed: {exc}')
+
+    if method == 'cloud_item_info':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            result = getBackend().getCloudDriveItemInfo(song_id)
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'cloud item info failed: {exc}')
+
+    if method == 'rectify_cloud_song':
+        from core.backend import getBackend
+
+        old_song_id = str(params.get('old_song_id') or '')
+        new_song_id = str(params.get('new_song_id') or '')
+        if not old_song_id or not new_song_id:
+            return encode_error(request_id, 'missing old_song_id or new_song_id')
+        try:
+            result = getBackend().rectifyCloudSong(old_song_id, new_song_id)
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'rectify cloud song failed: {exc}')
+
+    if method == 'fm_more':
+        from core.backend import getBackend
+
+        try:
+            limit = max(1, min(20, int(params.get('limit') or 3)))
+            result = getBackend().getMoreRadioContent(limit)
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'fm more failed: {exc}')
+
+    if method == 'difm_playing':
+        from core.backend import getBackend
+
+        try:
+            channel_id = int(params.get('channel_id') or 101)
+            limit = max(1, min(50, int(params.get('limit') or 10)))
+            result = getBackend().getDifmPlayingTracks(channel_id, limit)
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'difm playing failed: {exc}')
+
+    if method == 'difm_channels':
+        from core.backend import getBackend
+
+        try:
+            result = getBackend().getDifmChannels()
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'difm channels failed: {exc}')
+
+    if method == 'difm_subscriptions':
+        from core.backend import getBackend
+
+        try:
+            result = getBackend().getDifmSubscribedChannels()
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'difm subscriptions failed: {exc}')
+
+    if method == 'difm_subscribe':
+        from core.backend import getBackend
+
+        try:
+            channel_id = int(params.get('channel_id') or 0)
+            subscribe = bool(params.get('subscribe', True))
+            result = getBackend().setDifmChannelSubscription(channel_id, subscribe)
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'difm subscribe failed: {exc}')
+
+    if method == 'sports_fm':
+        from core.backend import getBackend
+
+        try:
+            limit = max(1, min(20, int(params.get('limit') or 3)))
+            bpm = max(30, min(200, int(params.get('bpm') or 50)))
+            result = getBackend().getSportsFMRecommendations(limit, bpm)
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'sports fm failed: {exc}')
+
+    if method == 'sports_fm_status':
+        from core.backend import getBackend
+
+        try:
+            result = getBackend().getCalculatedSportsFMStatus(
+                distance=int(params.get('distance') or 0),
+                maxbpm=int(params.get('maxbpm') or 0),
+                time=int(params.get('time') or 0),
+                song_list=params.get('song_list'),
+                steps=int(params.get('steps') or 0),
+                bpm=int(params.get('bpm') or 0),
+            )
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'sports fm status failed: {exc}')
+
+    if method == 'zone_fm':
+        from core.backend import getBackend
+
+        try:
+            zone = str(params.get('zone') or 'CLASSICAL')
+            limit = max(1, min(20, int(params.get('limit') or 3)))
+            result = getBackend().getZoneFMInfo(zone, limit)
+            return encode_response(request_id, {'result': result})
+        except Exception as exc:
+            return encode_error(request_id, f'zone fm failed: {exc}')
+
+    if method == 'zone_fm_skip':
+        from core.backend import getBackend
+
+        song_id = str(params.get('song_id') or '')
+        if not song_id:
+            return encode_error(request_id, 'missing song_id')
+        try:
+            zone = str(params.get('zone') or 'CLASSICAL')
+            result = getBackend().skipZoneFMTrack(song_id, zone)
+            return encode_response(
+                request_id, {'ok': bool(result.get('code', 0) == 200)}
+            )
+        except Exception as exc:
+            return encode_error(request_id, f'zone fm skip failed: {exc}')
+
+    if method == 'login_anonymous':
+        from core.backend import getBackend
+
+        try:
+            getBackend().loginViaAnonymousAccount()
+            return encode_response(request_id, {'ok': True})
+        except Exception as exc:
+            return encode_error(request_id, f'anonymous login failed: {exc}')
 
     if method == 'get_artist':
         from pyncm import apis

@@ -707,6 +707,333 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
     def addComment(self, song_id: str, content: str) -> None:
         apis.track.addComment(song_id, content)
 
+    # ------------------------------------------------------------------
+    # 以下为 standalone 后端为对标 pyncm 全量 API 补齐的封装。
+    # 与现有方法保持一致,直接透传 pyncm 并做必要断言/类型归一。
+    # ------------------------------------------------------------------
+
+    def loginViaEmail(
+        self, email: str, password: str, remember_login: bool = True
+    ) -> BackendSessionSnapshot:
+        """pyncm login.loginViaEmail."""
+        apis.login.loginViaEmail(email, password, remeberLogin=remember_login)
+        return self._sessionSnapshot()
+
+    def registerViaCellphone(
+        self, cell: str, captcha: str, nickname: str, password: str
+    ) -> dict:
+        """pyncm login.setRegisterAccountViaCellphone."""
+        response = apis.login.setRegisterAccountViaCellphone(
+            cell, captcha, nickname, password
+        )
+        assert isinstance(response, dict), 'Invalid register response'
+        return response
+
+    def checkCellphoneRegistered(self, cell: str, prefix: int = 86) -> dict:
+        """pyncm login.checkIsCellphoneRegistered."""
+        response = apis.login.checkIsCellphoneRegistered(cell, prefix=prefix)
+        assert isinstance(response, dict), 'Invalid check response'
+        return response
+
+    def refreshLoginToken(self) -> dict:
+        """pyncm login.loginRefreshToken."""
+        response = apis.login.loginRefreshToken()
+        assert isinstance(response, dict), 'Invalid refresh response'
+        return response
+
+    def dailySignin(self, dtype: int = 0) -> dict:
+        """pyncm user.setSignin (0=mobile, 1=web)."""
+        response = apis.user.setSignin(dtype)
+        assert isinstance(response, dict), 'Invalid signin response'
+        return response
+
+    def getUserAlbumSubs(self, limit: int = 30) -> dict:
+        """pyncm user.getUserAlbumSubs."""
+        response = apis.user.getUserAlbumSubs(limit)
+        assert isinstance(response, dict), 'Invalid album subs response'
+        return response
+
+    def getUserArtistSubs(self, limit: int = 30) -> dict:
+        """pyncm user.getUserArtistSubs."""
+        response = apis.user.getUserArtistSubs(limit)
+        assert isinstance(response, dict), 'Invalid artist subs response'
+        return response
+
+    def getCloudDriveSongs(self, limit: int = 30, offset: int = 0) -> dict:
+        """pyncm cloud.getCloudDriveInfo (云盘列表)."""
+        response = apis.cloud.getCloudDriveInfo(limit=limit, offset=offset)
+        assert isinstance(response, dict), 'Invalid cloud drive response'
+        return response
+
+    def uploadCloudSong(
+        self,
+        file_path: str,
+        song: str = '',
+        artist: str = '',
+        album: str = '',
+        bitrate: int = 128,
+    ) -> dict:
+        """上传本地音频到云盘(完整 pyncm cloud 链路).
+
+        依次调用 getNosToken -> setUploadObject -> getCheckCloudUpload ->
+        setUploadCloudInfo -> setPublishCloudResource。
+        """
+        import hashlib
+        import os
+
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(file_path)
+        filename = os.path.basename(file_path)
+        ext = os.path.splitext(filename)[1].lstrip('.').lower()
+        file_size = os.path.getsize(file_path)
+
+        with open(file_path, 'rb') as f:
+            stream = f.read()
+        md5 = hashlib.md5(stream).hexdigest()
+
+        token = apis.cloud.getNosToken(filename, md5, file_size, ext)
+        assert isinstance(token, dict), 'Invalid nos token response'
+        resource_id = str(token.get('resourceId') or '')
+        object_key = str(token.get('objectKey') or '')
+        nos_token = str(token.get('token') or '')
+        if not (resource_id and object_key and nos_token):
+            raise RuntimeError(f'nos token missing fields: {token}')
+
+        upload = apis.cloud.setUploadObject(
+            stream, md5, file_size, object_key, nos_token
+        )
+        assert isinstance(upload, dict), 'Invalid upload response'
+        if upload.get('code') != 0 and upload.get('code') != 200:
+            raise RuntimeError(f'upload failed: {upload}')
+
+        check = apis.cloud.getCheckCloudUpload(md5, ext, file_size, bitrate)
+        assert isinstance(check, dict), 'Invalid upload check response'
+        song_id = str(check.get('songId') or '')
+        if not song_id:
+            raise RuntimeError(f'upload check failed: {check}')
+
+        info = apis.cloud.setUploadCloudInfo(
+            resource_id,
+            song_id,
+            md5,
+            filename,
+            song=song or filename,
+            artist=artist,
+            album=album,
+            bitrate=bitrate,
+        )
+        assert isinstance(info, dict), 'Invalid cloud info response'
+
+        publish = apis.cloud.setPublishCloudResource(song_id)
+        assert isinstance(publish, dict), 'Invalid publish response'
+
+        return {
+            'song_id': song_id,
+            'info': info,
+            'publish': publish,
+        }
+
+    def getAlbumComments(self, album_id: str, offset: int = 0, limit: int = 20) -> dict:
+        """pyncm album.getAlbumComments."""
+        response = apis.album.getAlbumComments(album_id, offset=offset, limit=limit)
+        assert isinstance(response, dict), 'Invalid album comments response'
+        return response
+
+    def getPlaylistComments(
+        self, playlist_id: str, offset: int = 0, limit: int = 20
+    ) -> dict:
+        """pyncm playlist.getPlaylistComments."""
+        response = apis.playlist.getPlaylistComments(
+            playlist_id, offset=offset, limit=limit
+        )
+        assert isinstance(response, dict), 'Invalid playlist comments response'
+        return response
+
+    def getMVDetail(self, mv_id: str) -> dict:
+        """pyncm video.getMVDetail."""
+        response = apis.video.getMVDetail(mv_id)
+        assert isinstance(response, dict), 'Invalid mv detail response'
+        return response
+
+    def getMVResource(self, mv_id: str, res: int = 1080) -> dict:
+        """pyncm video.getMVResource."""
+        response = apis.video.getMVResource(mv_id, res=res)
+        assert isinstance(response, dict), 'Invalid mv resource response'
+        return response
+
+    def getMVComments(self, mv_id: str, offset: int = 0, limit: int = 20) -> dict:
+        """pyncm video.getMVComments."""
+        response = apis.video.getMVComments(mv_id, offset=offset, limit=limit)
+        assert isinstance(response, dict), 'Invalid mv comments response'
+        return response
+
+    def radioControl(
+        self, action: str, song_id: str, like: bool = True, time: str = '0'
+    ) -> dict:
+        """pyncm miniprograms.radio 交互: skip / like / unlike / trash."""
+        if action == 'skip':
+            response = apis.miniprograms.radio.setSkipRadioContent(song_id, time=time)
+        elif action == 'like':
+            response = apis.miniprograms.radio.setLikeRadioContent(
+                song_id, like=True, time=time
+            )
+        elif action == 'unlike':
+            response = apis.miniprograms.radio.setLikeRadioContent(
+                song_id, like=False, time=time
+            )
+        elif action == 'trash':
+            response = apis.miniprograms.radio.setTrashRadioContent(song_id, time=time)
+        else:
+            raise ValueError(f'unknown radio action: {action}')
+        assert isinstance(response, dict), 'Invalid radio response'
+        return response
+
+    def matchTrackByFP(self, audio_fp: str, duration: float) -> dict:
+        """pyncm track.getMatchTrackByFP (听歌识曲)."""
+        response = apis.track.getMatchTrackByFP(audio_fp, duration)
+        assert isinstance(response, dict), 'Invalid fingerprint match response'
+        return response
+
+    def getTrackAudioV1(self, track_id: str, level: str = 'standard') -> dict:
+        """pyncm track.getTrackAudioV1 (按音质等级取播放地址)."""
+        response = apis.track.getTrackAudioV1([str(track_id)], level=level)
+        if isinstance(response, bytes):
+            response = json.loads(response.decode())
+        assert isinstance(response, dict), 'Invalid track audio v1 response'
+        return response
+
+    def getTrackDownloadURL(self, track_id: str, bitrate: int = 320000) -> dict:
+        """pyncm track.getTrackDownloadURL."""
+        response = apis.track.getTrackDownloadURL([str(track_id)], bitrate=bitrate)
+        if isinstance(response, bytes):
+            try:
+                response = json.loads(response.decode())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # 匿名/受限歌曲可能返回非 JSON 原始字节,降级为空结果。
+                return {}
+        assert isinstance(response, dict), 'Invalid download url response'
+        return response
+
+    def likeTrack(self, track_id: str, like: bool = True) -> dict:
+        """pyncm track.setLikeTrack (直接红心/取消红心)."""
+        response = apis.track.setLikeTrack(track_id, like=like)
+        assert isinstance(response, dict), 'Invalid like response'
+        return response
+
+    def getTrackComments(self, song_id: str, offset: int = 0, limit: int = 20) -> dict:
+        """pyncm track.getTrackComments (网页版歌曲评论)."""
+        response = apis.track.getTrackComments(
+            str(song_id), offset=offset, limit=limit
+        )
+        assert isinstance(response, dict), 'Invalid track comments response'
+        return response
+
+    def loginTypeSwitch(self) -> dict:
+        """pyncm login.loginTypeSwitch (切换登录方式,服务端等同登出)."""
+        response = apis.login.loginTypeSwitch()
+        assert isinstance(response, dict), 'Invalid login type switch response'
+        return response
+
+    def getTrackDownloadURLV1(self, track_id: str, level: str = 'standard') -> dict:
+        """pyncm track.getTrackDownloadURLV1 (V1 下载地址)."""
+        response = apis.track.getTrackDownloadURLV1([str(track_id)], level=level)
+        if isinstance(response, bytes):
+            try:
+                response = json.loads(response.decode())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return {}
+        assert isinstance(response, dict), 'Invalid download url v1 response'
+        return response
+
+    def getCloudDriveItemInfo(self, song_id: str) -> dict:
+        """pyncm cloud.getCloudDriveItemInfo (云盘单曲详情)."""
+        response = apis.cloud.getCloudDriveItemInfo([str(song_id)])
+        assert isinstance(response, dict), 'Invalid cloud item response'
+        return response
+
+    def rectifyCloudSong(self, old_song_id: str, new_song_id: str) -> dict:
+        """pyncm cloud.setRectifySongId (云盘歌曲纠错)."""
+        response = apis.cloud.setRectifySongId(old_song_id, new_song_id)
+        assert isinstance(response, dict), 'Invalid rectify response'
+        return response
+
+    def getMoreRadioContent(self, limit: int = 3) -> dict:
+        """pyncm miniprograms.radio.getMoreRadioContent (更多FM内容)."""
+        response = apis.miniprograms.radio.getMoreRadioContent(limit=limit)
+        assert isinstance(response, dict), 'Invalid radio content response'
+        return response
+
+    def getDifmPlayingTracks(self, channel_id: int = 101, limit: int = 10) -> dict:
+        """pyncm miniprograms.difm.getCurrentPlayingTrackList (DIFM 播放列表)."""
+        response = apis.miniprograms.difm.getCurrentPlayingTrackList(
+            channelId=channel_id, limit=limit
+        )
+        assert isinstance(response, dict), 'Invalid difm playing response'
+        return response
+
+    def getDifmChannels(self) -> dict:
+        """pyncm miniprograms.difm.getChannelCollection (DIFM 频道)."""
+        response = apis.miniprograms.difm.getChannelCollection()
+        assert isinstance(response, dict), 'Invalid difm channels response'
+        return response
+
+    def getDifmSubscribedChannels(self) -> dict:
+        """pyncm miniprograms.difm.getChannelSubscriptionCollection (订阅频道)."""
+        response = apis.miniprograms.difm.getChannelSubscriptionCollection()
+        assert isinstance(response, dict), 'Invalid difm subs response'
+        return response
+
+    def setDifmChannelSubscription(
+        self, channel_id: int, subscribe: bool = True
+    ) -> dict:
+        """pyncm miniprograms.difm.setChannelSubscribiton (订阅/取消频道)."""
+        response = apis.miniprograms.difm.setChannelSubscribiton(
+            channel_id, set_subsubscribe=subscribe
+        )
+        assert isinstance(response, dict), 'Invalid difm subscribe response'
+        return response
+
+    def getSportsFMRecommendations(self, limit: int = 3, bpm: int = 50) -> dict:
+        """pyncm miniprograms.sportsfm.getSportsFMRecommendations (运动FM推荐)."""
+        response = apis.miniprograms.sportsfm.getSportsFMRecommendations(
+            limit=limit, bpm=bpm
+        )
+        assert isinstance(response, dict), 'Invalid sports fm response'
+        return response
+
+    def getCalculatedSportsFMStatus(
+        self,
+        distance: int = 0,
+        maxbpm: int = 0,
+        time: int = 0,
+        song_list: list | None = None,
+        steps: int = 0,
+        bpm: int = 0,
+    ) -> dict:
+        """pyncm miniprograms.sportsfm.getCalculatedSportsFMStatus."""
+        response = apis.miniprograms.sportsfm.getCalculatedSportsFMStatus(
+            distance=distance,
+            maxbpm=maxbpm,
+            time=time,
+            songList=song_list or [],
+            steps=steps,
+            bpm=bpm,
+        )
+        assert isinstance(response, dict), 'Invalid sports status response'
+        return response
+
+    def getZoneFMInfo(self, zone: str = 'CLASSICAL', limit: int = 3) -> dict:
+        """pyncm miniprograms.zonefm.getFmZoneInfo (专区FM内容)."""
+        response = apis.miniprograms.zonefm.getFmZoneInfo(limit=limit, zone=zone)
+        assert isinstance(response, dict), 'Invalid zone fm response'
+        return response
+
+    def skipZoneFMTrack(self, song_id: str, zone: str = 'CLASSICAL') -> dict:
+        """pyncm miniprograms.zonefm.setSkipFmTrack (跳过专区FM曲目)."""
+        response = apis.miniprograms.zonefm.setSkipFmTrack(song_id, zone=zone)
+        assert isinstance(response, dict), 'Invalid zone skip response'
+        return response
+
 
 def _tag_texts(value: Any) -> list[str]:
     result: list[str] = []

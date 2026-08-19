@@ -282,14 +282,53 @@ printf '{"id":1,"method":"ping"}\n{"id":2,"method":"shutdown"}\n' | \
 Each request is `{"id": ..., "method": ..., "params": {...}}` and each response
 is `{"id": ..., "result": ...}` or `{"id": ..., "error": {"code": ..., "message": ...}}`.
 
+`standalone.py` also exposes the same protocol over a TCP RPC server on port
+`15490` (`--port` to change), so a frontend can either spawn the process or
+connect to a manually started core.
+
+Supported RPC methods (all in `standalone.py`):
+
+| Group | Methods |
+| --- | --- |
+| Lifecycle | `ping`, `shutdown`, `get_status`, `get_config`, `set_config` |
+| Search / discover | `search`, `daily_recommend` |
+| Playlists | `user_playlists`, `get_playlist`, `folder_songs`, `list_favorites`, `clear_playlist`, `create_playlist`, `remove_playlist`, `remove_playlist_song` |
+| Playback | `play_songs`, `play_playlist`, `play_storable`, `queue_song`, `play_control`, `play_mode`, `get_playback`, `get_lyrics` |
+| Library | `get_liked_songs`, `like_song`, `unlike_song` |
+| Account / login | `get_account_info`, `logout`, `login_cellphone_send`, `login_cellphone_verify`, `login_qr_create`, `login_qr_check`, `login_cookie` |
+| Detail | `get_album_tracks`, `get_artist`, `get_user`, `get_comments`, `add_comment` |
+| Download | `download_song` |
+
+`play_mode` also drives the smart-recommendation modes (mapped to the kernel's
+`startHeartMode` / `startPersonalFM` / `startPrivateRadar` / `startSimilarSongs`):
+`heart` (heart mode), `fm` (personal radio), `radar` (private radar), and
+`similar` (similar songs).
+
+Playback/queue mutations also push `SONG_CHANGED`, `PLAY_STATE_CHANGED`,
+`PLAYLIST_CHANGED`, `PLAYBACK_LYRICS_UPDATED`, and `LYRIC_LINE_CHANGED` events
+to connected clients (the Flutter `PlayerState` consumes these).
+
 ### Flutter UI Rewrite
 
-`flutter_ui/` is a Flutter desktop (Linux) prototype of the next UI generation.
-It currently ships a Home shell (title bar, sidebar, content area, bottom player
-bar), Search / Playlist / Favorites / Now Playing / Settings pages, a shared
-player state, an accent-theme registry with dark/light modes, and mock data —
-no live backend wiring yet. The plan is to drive it over the headless backend
-protocol above, replacing the PySide6 views.
+`flutter_ui/` is a Flutter desktop prototype of the next UI generation. It
+drives the headless backend (`src/backend/standalone.py`) over the same
+newline-delimited JSON protocol through `lib/services/backend_client.dart`,
+which supports two transports:
+
+- **TCP RPC** (`connectTcp`, default `127.0.0.1:15490`) when the core backend
+  is started manually;
+- **Process mode** (`connectProcess`) when the frontend spawns the core as a
+  child process and talks over stdin/stdout (tighter lifecycle, no port).
+
+Implemented pages: Home (daily recommendations, mode cards, cloud playlists),
+Search (songs/playlists), Favorites (local folders + cloud playlists), Playlist
+detail, Now Playing (classic/single-line layouts, translation toggle, play mode,
+playlist drawer, like, download, share), Comments, Artist, Album, User profile,
+Login (QR code / cell phone / cookie), and Settings. Shared `PlayerState` keeps
+playback in sync with the backend (polling + event subscriptions).
+
+The PySide6 desktop UI remains the primary shipped interface; the Flutter UI is
+being driven toward feature parity with it before replacing the PySide6 views.
 
 ### Project Layout
 

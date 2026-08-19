@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart';
+import 'netease_image_provider.dart' show NeteaseImageProvider;
 
 /// 网络图片:加载失败/加载中显示占位(利用 Flutter 内置图片内存缓存)。
 class NetImage extends StatelessWidget {
@@ -28,8 +29,8 @@ class NetImage extends StatelessWidget {
       borderRadius: BorderRadius.circular(radius),
       child: url.isEmpty
           ? placeholder
-          : Image.network(
-              url,
+          : Image(
+              image: NeteaseImageProvider(url),
               width: width,
               height: height,
               fit: BoxFit.cover,

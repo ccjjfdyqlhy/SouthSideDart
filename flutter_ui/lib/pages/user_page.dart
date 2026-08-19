@@ -30,13 +30,60 @@ class UserPage extends StatefulWidget {
 class _UserPageState extends State<UserPage> {
   Map<String, dynamic>? _user;
   List<Folder> _playlists = [];
+  List<Map<String, dynamic>> _subs = [];
   bool _loading = true;
+  bool _signingIn = false;
+  bool _subsLoaded = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  /// 每日签到(pyncm user.setSignin)。
+  Future<void> _dailySignin() async {
+    if (_signingIn || !widget.client.isConnected) return;
+    setState(() => _signingIn = true);
+    try {
+      final r = await widget.client.call('daily_signin', {'dtype': 'mobile'});
+      final code = ((r['result'] as Map<String, dynamic>?) ?? {})['code'];
+      if (!mounted) return;
+      final ok = code == 200;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? '签到成功(+4 经验)' : '签到失败(可能已签到)'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('签到失败:$e'), duration: const Duration(seconds: 2)),
+      );
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
+  }
+
+  /// 加载我的订阅(艺人/专辑,pyncm user.getUserArtistSubs / getUserAlbumSubs)。
+  Future<void> _loadSubs() async {
+    if (_subsLoaded || !widget.client.isConnected) return;
+    try {
+      final r = await widget.client.call('user_subs', {'type': 'artist'});
+      final data = (r['result'] as Map<String, dynamic>?) ?? {};
+      final items = ((data['items'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _subs = items;
+        _subsLoaded = true;
+      });
+    } catch (_) {
+      // 匿名或未登录时静默失败。
+    }
   }
 
   Future<void> _load() async {
@@ -157,6 +204,18 @@ class _UserPageState extends State<UserPage> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: _signingIn ? null : _dailySignin,
+                            icon: Icon(
+                              Icons.task_alt_rounded,
+                              size: 16,
+                              color: _signingIn
+                                  ? colors.textTertiary
+                                  : colors.accent,
+                            ),
+                            label: Text(_signingIn ? '签到中…' : '每日签到'),
+                          ),
                           const SizedBox(height: 20),
                           Text(
                             '歌单 (${_playlists.length})',
@@ -196,9 +255,85 @@ class _UserPageState extends State<UserPage> {
                                 );
                               },
                             ),
+                          const SizedBox(height: 24),
+                          Text(
+                            '我的订阅 (${_subs.length})',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: colors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (!_subsLoaded)
+                            TextButton(
+                              onPressed: _loadSubs,
+                              child: Text(
+                                '加载我订阅的艺人',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: colors.accent,
+                                ),
+                              ),
+                            )
+                          else if (_subs.isEmpty)
+                            Text(
+                              '暂无订阅',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: colors.textTertiary,
+                              ),
+                            )
+                          else
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                for (final sub in _subs)
+                                  _SubChip(
+                                    name: (sub['name'] ?? '').toString(),
+                                    coverUrl: (sub['cover_url'] ?? '').toString(),
+                                    seed: widget.userId,
+                                  ),
+                              ],
+                            ),
                           const SizedBox(height: 16),
                         ],
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 订阅条目:圆形封面 + 名称。
+class _SubChip extends StatelessWidget {
+  final String name;
+  final String coverUrl;
+  final int seed;
+
+  const _SubChip({
+    required this.name,
+    required this.coverUrl,
+    required this.seed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return SizedBox(
+      width: 96,
+      child: Column(
+        children: [
+          NetImage(url: coverUrl, width: 72, height: 72, radius: 36, seed: seed),
+          const SizedBox(height: 6),
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: colors.textSecondary),
           ),
         ],
       ),

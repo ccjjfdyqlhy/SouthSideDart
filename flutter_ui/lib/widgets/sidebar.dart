@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
 import 'common.dart';
+import 'netease_image_provider.dart' show NeteaseImageProvider;
 
 /// 侧边栏主入口。
 enum SideNavItem {
@@ -29,6 +30,7 @@ class Sidebar extends StatelessWidget {
   final VoidCallback onSettings;
   final VoidCallback? onLogout;
   final VoidCallback? onUserTap;
+  final VoidCallback? onCreateFolder;
 
   const Sidebar({
     super.key,
@@ -43,6 +45,7 @@ class Sidebar extends StatelessWidget {
     required this.onSettings,
     this.onLogout,
     this.onUserTap,
+    this.onCreateFolder,
   });
 
   @override
@@ -69,6 +72,7 @@ class Sidebar extends StatelessWidget {
             folders: folders,
             selectedFolderId: selectedFolderId,
             onFolderTap: onFolderTap,
+            onCreateFolder: onCreateFolder,
           ),
           const Spacer(),
           if (account != null) ...[
@@ -146,11 +150,13 @@ class _FolderSection extends StatelessWidget {
   final List<Folder> folders;
   final int? selectedFolderId;
   final ValueChanged<Folder> onFolderTap;
+  final VoidCallback? onCreateFolder;
 
   const _FolderSection({
     required this.folders,
     required this.selectedFolderId,
     required this.onFolderTap,
+    this.onCreateFolder,
   });
 
   @override
@@ -172,7 +178,20 @@ class _FolderSection extends StatelessWidget {
                 onTap: () => onFolderTap(f),
               ),
             ],
-            _SectionLabel('云端', colors),
+            Row(
+              children: [
+                _SectionLabel('云端', colors),
+                const Spacer(),
+                if (onCreateFolder != null)
+                  IconBtn(
+                    icon: Icons.add_rounded,
+                    size: 16,
+                    tooltip: '新建歌单',
+                    color: colors.textSecondary,
+                    onTap: onCreateFolder,
+                  ),
+              ],
+            ),
             if (cloud.isEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
@@ -216,6 +235,7 @@ class _AccountTile extends StatelessWidget {
     final colors = context.colors;
     final loggedIn = account['logged_in'] == true;
     final nickname = (account['nickname'] ?? '').toString();
+    final avatarUrl = (account['avatar_url'] ?? '').toString();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Material(
@@ -231,6 +251,11 @@ class _AccountTile extends StatelessWidget {
               CircleAvatar(
                 radius: 16,
                 backgroundColor: colors.accent,
+                foregroundImage: avatarUrl.isNotEmpty
+                    ? NeteaseImageProvider(avatarUrl)
+                    : null,
+                onForegroundImageError:
+                    avatarUrl.isNotEmpty ? (_, _) {} : null,
                 child: Text(
                   nickname.isNotEmpty ? nickname.characters.first : '?',
                   style: const TextStyle(

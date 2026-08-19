@@ -6,6 +6,7 @@ import '../state/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/folder_card.dart';
+import '../widgets/netease_image_provider.dart' show NeteaseImageProvider;
 import '../widgets/song_card.dart';
 
 /// 首页:标题 + 账号问候 + 模式卡 + 推荐歌单 + 推荐歌曲。
@@ -16,6 +17,9 @@ class HomePage extends StatelessWidget {
 
   /// 用户自己的歌单(云端),来自 ``user_playlists``。
   final List<Folder> userFolders;
+
+  /// 当前登录账号信息(``avatar_url``/``nickname``),用于页头问候与头像。
+  final Map<String, dynamic>? account;
 
   /// 模式卡点击回调(heart/fm/radar/similar),连接内核时触发真实播放模式。
   final ValueChanged<String>? onModeTap;
@@ -30,6 +34,7 @@ class HomePage extends StatelessWidget {
     this.folders = const [],
     this.songs = const [],
     this.userFolders = const [],
+    this.account,
     this.onModeTap,
     this.onArtistTap,
     required this.onFolderTap,
@@ -40,6 +45,9 @@ class HomePage extends StatelessWidget {
     final colors = context.colors;
     final folderList = folders;
     final songList = songs;
+    final rawNick = (account?['nickname'] ?? '').toString();
+    final nickname = rawNick.isEmpty ? '音乐人' : rawNick;
+    final avatarUrl = (account?['avatar_url'] ?? '').toString();
 
     return CustomScrollView(
       slivers: [
@@ -58,11 +66,27 @@ class HomePage extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '欢迎回来,Darkstar',
+                  '欢迎回来,$nickname',
                   style: TextStyle(fontSize: 15, color: colors.textSecondary),
                 ),
                 const SizedBox(width: 10),
-                const CircleAvatar(radius: 24, backgroundColor: Color(0xFF8E7CC3)),
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: colors.accent,
+                  foregroundImage: avatarUrl.isNotEmpty
+                      ? NeteaseImageProvider(avatarUrl)
+                      : null,
+                  onForegroundImageError:
+                      avatarUrl.isNotEmpty ? (_, _) {} : null,
+                  child: Text(
+                    nickname.isNotEmpty ? nickname.characters.first : '?',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

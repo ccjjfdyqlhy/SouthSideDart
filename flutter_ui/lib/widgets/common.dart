@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart';
 import '../theme/app_theme.dart';
+import 'netease_image_provider.dart' show NeteaseImageProvider;
 
 /// 封面图:有真实 URL 显示网络图(带占位兜底),否则渐变 + 音符占位。
 class CoverImage extends StatelessWidget {
@@ -27,8 +28,8 @@ class CoverImage extends StatelessWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: Image.network(
-          url!,
+        child: Image(
+          image: NeteaseImageProvider(url!),
           width: size,
           height: size,
           fit: BoxFit.cover,

@@ -275,9 +275,48 @@ printf '{"id":1,"method":"ping"}\n{"id":2,"method":"shutdown"}\n' | \
 
 每个请求为 `{"id": ..., "method": ..., "params": {...}}`，响应为 `{"id": ..., "result": ...}` 或 `{"id": ..., "error": {"code": ..., "message": ...}}`。
 
+`standalone.py` 也在 TCP RPC 服务（端口 `15490`，可用 `--port` 修改）上暴露同一协议，
+前端既可以作为子进程启动内核，也可以连接手动启动的内核。
+
+支持的全部 RPC 方法（都在 `standalone.py` 中）：
+
+| 分组 | 方法 |
+| --- | --- |
+| 生命周期 | `ping`、`shutdown`、`get_status`、`get_config`、`set_config` |
+| 搜索 / 发现 | `search`、`daily_recommend` |
+| 歌单 | `user_playlists`、`get_playlist`、`folder_songs`、`list_favorites`、`clear_playlist`、`create_playlist`、`remove_playlist`、`remove_playlist_song` |
+| 播放 | `play_songs`、`play_playlist`、`play_storable`、`queue_song`、`play_control`、`play_mode`、`get_playback`、`get_lyrics` |
+
+`play_mode` 除用于常规播放模式外，也支持智能推荐模式：`heart`（心动模式）、
+`fm`（私人漫游）、`radar`（私人雷达）、`similar`（相似歌曲），分别对应内核的
+`startHeartMode` / `startPersonalFM` / `startPrivateRadar` / `startSimilarSongs`。
+| 收藏 | `get_liked_songs`、`like_song`、`unlike_song` |
+| 账号 / 登录 | `get_account_info`、`logout`、`login_cellphone_send`、`login_cellphone_verify`、`login_qr_create`、`login_qr_check`、`login_cookie` |
+| 详情 | `get_album_tracks`、`get_artist`、`get_user`、`get_comments`、`add_comment` |
+| 下载 | `download_song` |
+
+播放/队列变更还会向已连接客户端推送 `SONG_CHANGED`、`PLAY_STATE_CHANGED`、
+`PLAYLIST_CHANGED`、`PLAYBACK_LYRICS_UPDATED`、`LYRIC_LINE_CHANGED` 事件
+（Flutter 的 `PlayerState` 会消费这些事件）。
+
 ### Flutter UI 重写
 
-`flutter_ui/` 是下一代界面的 Flutter 桌面（Linux）原型。目前包含主框架（标题栏、侧边栏、内容区、底部播放栏）、搜索 / 歌单 / 收藏 / 播放 / 设置页面、共享播放状态、带明暗模式的多主题注册表和 mock 数据，尚未接通真实后端。计划是通过上述无头后端协议驱动它，逐步取代 PySide6 界面。
+`flutter_ui/` 是下一代界面的 Flutter 桌面原型，通过 `lib/services/backend_client.dart`
+使用与上述一致、换行分隔的 JSON 协议驱动无头后端 `src/backend/standalone.py`，
+支持两种传输：
+
+- **TCP RPC**（`connectTcp`，默认 `127.0.0.1:15490`）：手动启动内核后连接；
+- **进程模式**（`connectProcess`）：由前端启动内核子进程，经 stdin/stdout 直连
+  （生命周期随前端、无需手动启动、无端口依赖）。
+
+已实现的页面：首页（每日推荐、模式卡、云端歌单）、搜索（歌曲/歌单）、收藏
+（本地收藏夹 + 云端歌单）、歌单详情、播放页（经典/单行布局、翻译开关、播放
+模式、播放列表抽屉、红心、下载、分享）、评论、歌手、专辑、用户主页、登录
+（二维码/手机/cookie）、设置。共享的 `PlayerState` 通过轮询 + 事件订阅与后端
+保持播放同步。
+
+PySide6 桌面界面仍是当前正式交付的界面；Flutter UI 正在向其功能对齐，之后才
+取代 PySide6 界面。
 
 ### 项目结构
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/backend_client.dart';
 import '../theme/app_theme.dart';
+import '../widgets/netease_image_provider.dart' show NeteaseImageProvider;
 
 class _Comment {
   final String id;
@@ -274,6 +275,11 @@ class _CommentTile extends StatelessWidget {
           CircleAvatar(
             radius: 18,
             backgroundColor: colors.cardHover,
+            foregroundImage: comment.avatarUrl.isNotEmpty
+                ? NeteaseImageProvider(comment.avatarUrl)
+                : null,
+            onForegroundImageError:
+                comment.avatarUrl.isNotEmpty ? (_, _) {} : null,
             child: Text(
               comment.nickname.isNotEmpty
                   ? comment.nickname.characters.first
