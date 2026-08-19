@@ -467,7 +467,7 @@ class NeteaseCloudMusicBackend(MusicServiceBackend):
         for folder in playlists:
             if folder.folder_name in ('我喜欢的音乐', 'I Like Music'):
                 return folder
-        return playlists[0] if playlists else None
+        return None
 
     def createPlaylist(self, name: str) -> str:
         with pyncm.getCurrentSession():

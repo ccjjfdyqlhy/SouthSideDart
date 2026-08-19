@@ -55,6 +55,7 @@ class _SouthsideMusicAppState extends State<SouthsideMusicApp> {
     return MaterialApp(
       title: 'Southside Music',
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const AppScrollBehavior(),
       theme: AppTheme.light(_spec),
       darkTheme: AppTheme.dark(_spec),
       themeMode: _dark ? ThemeMode.dark : ThemeMode.light,
@@ -325,16 +326,36 @@ class _HomeShellState extends State<HomeShell> {
     super.dispose();
   }
 
+  /// 页面滚动后固定在顶栏居中的标题。
+  String? _pinnedTitle;
+
+  void _clearPinnedTitle() {
+    if (_pinnedTitle != null) {
+      setState(() => _pinnedTitle = null);
+    }
+  }
+
   void _navigate(SideNavItem item) {
     setState(() {
       _nav = item;
       _selectedFolder = null;
       _showSettings = false;
+      // 关闭右面板页(用户/歌手/专辑),保证侧边栏选项卡可正常切换。
+      _panelUserId = null;
+      _panelArtistId = null;
+      _panelAlbumId = null;
     });
+    _clearPinnedTitle();
   }
 
   void _openSettings() {
-    setState(() => _showSettings = true);
+    setState(() {
+      _showSettings = true;
+      _panelUserId = null;
+      _panelArtistId = null;
+      _panelAlbumId = null;
+    });
+    _clearPinnedTitle();
   }
 
   void _openFolder(Folder folder) {
@@ -344,6 +365,7 @@ class _HomeShellState extends State<HomeShell> {
       _panelArtistId = null;
       _panelAlbumId = null;
     });
+    _clearPinnedTitle();
     // 云端歌单歌曲由内核加载。
     _store?.loadFolderSongs(folder);
   }
@@ -354,6 +376,7 @@ class _HomeShellState extends State<HomeShell> {
       _panelArtistId = null;
       _panelAlbumId = null;
     });
+    _clearPinnedTitle();
   }
 
   /// 新建云端歌单:弹出输入框,调用内核创建后刷新列表。
@@ -403,6 +426,7 @@ class _HomeShellState extends State<HomeShell> {
       _panelAlbumId = null;
       _showPlayingPage = false;
     });
+    _clearPinnedTitle();
   }
 
   /// 打开用户主页(右面板,自动收起全屏播放页)。
@@ -415,6 +439,7 @@ class _HomeShellState extends State<HomeShell> {
       _panelAlbumId = null;
       _showPlayingPage = false;
     });
+    _clearPinnedTitle();
   }
 
   /// 打开当前歌曲的评论页(真实加载/发表)。
@@ -477,6 +502,7 @@ class _HomeShellState extends State<HomeShell> {
                 onMinimize: () {},
                 onMaximize: () {},
                 onClose: () => exit(0),
+                pinnedTitle: _pinnedTitle,
               ),
               Expanded(
                 child: Row(
@@ -537,18 +563,23 @@ class _HomeShellState extends State<HomeShell> {
           IgnorePointer(
             ignoring: !_showPlayingPage,
             child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
+              duration: AppMotion.medium,
+              curve: AppMotion.curve,
               opacity: _showPlayingPage ? 1 : 0,
-              child: PlayingPage(
-                player: _player,
-                lyrics: _effectiveLyrics(),
-                store: _store,
-                onComments: _openComments,
-                onPlaylist: () =>
-                    _scaffoldKey.currentState?.openEndDrawer(),
-                onArtistTap: _openArtist,
-                onCollapse: () => setState(() => _showPlayingPage = false),
+              child: AnimatedScale(
+                duration: AppMotion.medium,
+                curve: AppMotion.elastic,
+                scale: _showPlayingPage ? 1 : 1.02,
+                child: PlayingPage(
+                  player: _player,
+                  lyrics: _effectiveLyrics(),
+                  store: _store,
+                  onComments: _openComments,
+                  onPlaylist: () =>
+                      _scaffoldKey.currentState?.openEndDrawer(),
+                  onArtistTap: _openArtist,
+                  onCollapse: () => setState(() => _showPlayingPage = false),
+                ),
               ),
             ),
           ),
@@ -570,7 +601,71 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  /// 内容区页面(首页/搜索/歌单/设置)的标题,用于滚动后固定到顶栏。
+  String? _contentPageTitle() {
+    if (_showSettings) return '设置';
+    if (_selectedFolder != null) return _selectedFolder!.name;
+    return switch (_nav) {
+      SideNavItem.home => '首页',
+      SideNavItem.search => '搜索',
+    };
+  }
+
+  /// 当前内容唯一 key,用于页面切换动画。
+  String get _contentKey {
+    if (_panelArtistId != null) return 'artist:$_panelArtistId';
+    if (_panelAlbumId != null) return 'album:$_panelAlbumId';
+    if (_panelUserId != null) return 'user:$_panelUserId';
+    if (_showSettings) return 'settings';
+    if (_selectedFolder != null) return 'folder:${_selectedFolder!.id}';
+    return 'nav:${_nav.name}';
+  }
+
   Widget _buildContent() {
+    // 右面板页(用户/歌手/专辑)有自己的固定顶栏(返回+标题),标题不消失,
+    // 因此不参与全局标题固定。
+    if (_panelArtistId != null ||
+        _panelAlbumId != null ||
+        _panelUserId != null) {
+      return _buildContentPanel();
+    }
+    // 内容区页面:滚动超过标题高度后,把页面标题固定到顶栏居中位置。
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        final title = _contentPageTitle();
+        final shouldPin =
+            title != null && notification.metrics.pixels > 44;
+        if (shouldPin && _pinnedTitle != title) {
+          setState(() => _pinnedTitle = title);
+        } else if (!shouldPin && _pinnedTitle != null) {
+          setState(() => _pinnedTitle = null);
+        }
+        return false;
+      },
+      // 页面切换:淡入 + 轻微上移,非线性曲线。
+      child: AnimatedSwitcher(
+        duration: AppMotion.medium,
+        switchInCurve: AppMotion.curve,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position:
+                Tween(begin: const Offset(0, 0.02), end: Offset.zero)
+                    .animate(animation),
+            child: child,
+          ),
+        ),
+        child: KeyedSubtree(
+          key: ValueKey(_contentKey),
+          child: _buildContentPanel(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContentPanel() {
+    final store = _store;
     // 右面板页优先:用户主页 / 歌手页 / 专辑页。
     if (_panelArtistId != null) {
       return ArtistPage(
@@ -588,7 +683,10 @@ class _HomeShellState extends State<HomeShell> {
       return AlbumPage(
         client: _backend,
         albumId: _panelAlbumId!,
-        onBack: () => setState(() => _panelAlbumId = null),
+        onBack: () {
+          setState(() => _panelAlbumId = null);
+          _clearPinnedTitle();
+        },
         onSongTap: _player.playSong,
       );
     }
@@ -614,7 +712,6 @@ class _HomeShellState extends State<HomeShell> {
         onReconnect: _connectBackend,
       );
     }
-    final store = _store;
     // 选中歌单时优先显示歌单详情。
     if (_selectedFolder != null) {
       return FavoritesPage(

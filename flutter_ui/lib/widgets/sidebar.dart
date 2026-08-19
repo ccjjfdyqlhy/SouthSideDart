@@ -67,6 +67,14 @@ class Sidebar extends StatelessWidget {
               selected: !settingsSelected && current == item,
               onTap: () => onNavigate(item),
             ),
+          // 我的主页(登录后显示,用户头像选项卡):打开用户主页并可正常切换。
+          if (account?['logged_in'] == true && onUserTap != null)
+            _NavTile(
+              icon: Icons.person_rounded,
+              label: '我的主页',
+              selected: userPanelActive && !settingsSelected,
+              onTap: () => onUserTap!(),
+            ),
           const SizedBox(height: 8),
           _FolderSection(
             folders: folders,

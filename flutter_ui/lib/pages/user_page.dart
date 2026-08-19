@@ -204,6 +204,26 @@ class _UserPageState extends State<UserPage> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 14),
+                          // 用户统计信息:等级/关注/粉丝/歌单/动态/会员等。
+                          _UserStatsBar(
+                            level: ((_user?['level'] as num?) ?? 0).toInt(),
+                            follows:
+                                ((_user?['follows'] as num?) ?? 0).toInt(),
+                            followeds:
+                                ((_user?['followeds'] as num?) ?? 0).toInt(),
+                            playlistCount: ((_user?['playlist_count'] as num?) ??
+                                    0)
+                                .toInt(),
+                            eventCount:
+                                ((_user?['event_count'] as num?) ?? 0).toInt(),
+                            vipType: ((_user?['vip_type'] as num?) ?? 0).toInt(),
+                            gender: ((_user?['gender'] as num?) ?? 0).toInt(),
+                            province: ((_user?['province'] as num?) ?? 0).toInt(),
+                            city: ((_user?['city'] as num?) ?? 0).toInt(),
+                            createTime:
+                                ((_user?['create_time'] as num?) ?? 0).toInt(),
+                          ),
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
                             onPressed: _signingIn ? null : _dailySignin,
@@ -300,6 +320,112 @@ class _UserPageState extends State<UserPage> {
                           const SizedBox(height: 16),
                         ],
                       ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 用户统计信息条:等级 / 关注 / 粉丝 / 歌单 / 动态等。
+class _UserStatsBar extends StatelessWidget {
+  final int level;
+  final int follows;
+  final int followeds;
+  final int playlistCount;
+  final int eventCount;
+  final int vipType;
+  final int gender;
+  final int province;
+  final int city;
+  final int createTime;
+
+  const _UserStatsBar({
+    required this.level,
+    required this.follows,
+    required this.followeds,
+    required this.playlistCount,
+    required this.eventCount,
+    required this.vipType,
+    required this.gender,
+    required this.province,
+    required this.city,
+    required this.createTime,
+  });
+
+  String _formatCount(int n) {
+    if (n >= 10000) return '${(n / 10000).toStringAsFixed(1)}万';
+    return '$n';
+  }
+
+  String _formatDate(int ms) {
+    if (ms <= 0) return '';
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  String _genderLabel(int g) {
+    switch (g) {
+      case 1:
+        return '男';
+      case 2:
+        return '女';
+      default:
+        return '保密';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final chips = <Widget>[];
+    if (level > 0) chips.add(_InfoChip(icon: Icons.local_fire_department_rounded, text: 'Lv.$level', colors: colors));
+    chips.add(_InfoChip(icon: Icons.favorite_border_rounded, text: '关注 ${_formatCount(follows)}', colors: colors));
+    chips.add(_InfoChip(icon: Icons.people_alt_outlined, text: '粉丝 ${_formatCount(followeds)}', colors: colors));
+    if (playlistCount > 0) chips.add(_InfoChip(icon: Icons.queue_music_rounded, text: '歌单 $playlistCount', colors: colors));
+    if (eventCount > 0) chips.add(_InfoChip(icon: Icons.dynamic_feed_rounded, text: '动态 $eventCount', colors: colors));
+    if (vipType > 0) chips.add(_InfoChip(icon: Icons.workspace_premium_rounded, text: '会员', colors: colors));
+    chips.add(_InfoChip(icon: Icons.wc_rounded, text: _genderLabel(gender), colors: colors));
+    if (province > 0) chips.add(_InfoChip(icon: Icons.location_on_outlined, text: '地区 $province', colors: colors));
+    final createDate = _formatDate(createTime);
+    if (createDate.isNotEmpty) chips.add(_InfoChip(icon: Icons.cake_outlined, text: '加入于 $createDate', colors: colors));
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: chips,
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final AppColors colors;
+
+  const _InfoChip({
+    required this.icon,
+    required this.text,
+    required this.colors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: colors.divider),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: colors.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(fontSize: 12, color: colors.textSecondary),
           ),
         ],
       ),

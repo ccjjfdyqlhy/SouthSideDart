@@ -19,6 +19,7 @@ PLAYBACK_IMAGE_LOADED = 'playback_image_loaded'
 PLAYBACK_LYRICS_UPDATED = 'playback_lyrics_updated'
 PLAYBACK_ERROR = 'playback_error'
 PLAYLIST_CHANGED = 'playlist_changed'
+LIKE_CHANGED = 'like_changed'
 
 PRE_THEME_CHANGED = 'pre_theme_changed'
 POST_THEME_CHANGED = 'post_theme_changed'

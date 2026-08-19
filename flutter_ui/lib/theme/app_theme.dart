@@ -507,3 +507,32 @@ class AppTheme {
 extension BuildContextColors on BuildContext {
   AppColors get colors => Theme.of(this).extension<AppColors>()!;
 }
+
+/// 全局滚动行为:桌面鼠标滚轮使用带惯性的平滑滚动,
+/// 触摸板/触屏获得弹性回弹(Apple Music 风格)。
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
+    );
+  }
+}
+
+/// 统一的非线性曲线常量,供全局动画使用。
+class AppMotion {
+  /// 缓入缓出立方:进度/歌词/滑入等常规过渡。
+  static const Curve curve = Curves.easeInOutCubic;
+
+  /// 弹出回弹:页面/面板出现时轻微过冲,增强"丝滑"感。
+  static const Curve pop = Curves.easeOutBack;
+
+  /// 展开/收起(缩放 + 淡入)过渡时长。
+  static const Duration medium = Duration(milliseconds: 380);
+  static const Duration long = Duration(milliseconds: 560);
+
+  /// 带轻微回弹的过渡曲线(缩放/滑动)。
+  static const Curve elastic = Curves.easeOutCubic;
+}

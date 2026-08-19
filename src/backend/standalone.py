@@ -39,6 +39,7 @@ from backend.core_context import CoreContext
 from backend.protocol import encode_error, encode_response, parse_request
 from backend.service import CoreBackendService
 from services.events import (
+    LIKE_CHANGED,
     LYRIC_LINE_CHANGED,
     PLAY_STATE_CHANGED,
     PLAYBACK_LYRICS_UPDATED,
@@ -577,6 +578,8 @@ def _handle_request(
                 return encode_error(request_id, 'no liked playlist found')
             option = 'add' if method == 'like_song' else 'del'
             getBackend().editPlaylist(option, [song_id], folder_id)
+            # 通知前端红心状态已变化(供红心歌单/播放页及时刷新)。
+            event_bus.emit(LIKE_CHANGED, song_id, option == 'add')
             return encode_response(request_id, {'ok': True})
         except Exception as exc:
             return encode_error(request_id, f'{method} failed: {exc}')
@@ -1491,10 +1494,24 @@ def _handle_request(
                 {
                     'id': str(artist.get('id', '')),
                     'name': str(artist.get('name', '')),
+                    'alias': [
+                        str(a) for a in (artist.get('alias') or [])
+                    ],
+                    'trans_names': [
+                        str(a) for a in (artist.get('transNames') or [])
+                    ],
+                    'identify_tags': [
+                        str(a) for a in (artist.get('identifyTag') or [])
+                    ],
                     'avatar_url': _https(str(artist.get('avatar', '') or '')),
                     'brief': str(artist.get('briefDesc', '') or ''),
                     'music_count': int(artist.get('musicSize', 0) or 0),
                     'album_count': int(artist.get('albumSize', 0) or 0),
+                    'mv_count': int(artist.get('mvSize', 0) or 0),
+                    'followed': bool(artist.get('followed', False)),
+                    'fans_count': int(
+                        (artist.get('fansCount') or artist.get('fans') or 0)
+                    ),
                     'hot_songs': [
                         _api_song_to_dict(s) for s in (tracks.get('songs') or [])
                     ],
@@ -1559,6 +1576,17 @@ def _handle_request(
                     ),
                     'signature': str(profile.get('signature', '') or ''),
                     'event_count': int(profile.get('eventCount', 0) or 0),
+                    'playlist_count': int(profile.get('playlistCount', 0) or 0),
+                    'follows': int(profile.get('follows', 0) or 0),
+                    'followeds': int(profile.get('followeds', 0) or 0),
+                    'level': int(profile.get('level', 0) or 0),
+                    'gender': int(profile.get('gender', 0) or 0),
+                    'birthday': int(profile.get('birthday', 0) or 0),
+                    'province': int(profile.get('province', 0) or 0),
+                    'city': int(profile.get('city', 0) or 0),
+                    'create_time': int(profile.get('createTime', 0) or 0),
+                    'vip_type': int(profile.get('vipType', 0) or 0),
+                    'dj_status': int(profile.get('djStatus', 0) or 0),
                     'playlists': [
                         _cloud_folder_from_api(p) for p in playlists
                     ],
@@ -1733,11 +1761,21 @@ def _make_tcp_server(
     def _on_lyric_line_changed(*_: Any) -> None:
         _broadcast('LYRIC_LINE_CHANGED', {})
 
+    def _on_like_changed(song_id: Any, liked: Any) -> None:
+        _broadcast(
+            'LIKE_CHANGED',
+            {
+                'song_id': str(song_id),
+                'liked': bool(liked),
+            },
+        )
+
     event_bus.subscribe(SONG_CHANGED, _on_song_changed)
     event_bus.subscribe(PLAY_STATE_CHANGED, _on_play_state_changed)
     event_bus.subscribe(PLAYLIST_CHANGED, _on_playlist_changed)
     event_bus.subscribe(PLAYBACK_LYRICS_UPDATED, _on_lyrics_updated)
     event_bus.subscribe(LYRIC_LINE_CHANGED, _on_lyric_line_changed)
+    event_bus.subscribe(LIKE_CHANGED, _on_like_changed)
 
     try:
         server: socketserver.ThreadingTCPServer = socketserver.ThreadingTCPServer(

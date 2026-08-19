@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/backend_store.dart';
 import '../state/player_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/album_mesh_background.dart';
 import '../widgets/common.dart';
 
 /// 播放页布局模式。
@@ -156,23 +157,12 @@ class _PlayingPageState extends State<PlayingPage> {
       color: colors.background,
       child: Stack(
         children: [
-          // 主题色氛围光晕
-          Positioned(
-            top: -120,
-            right: -80,
+          // 封面取色流动网格渐变背景(参考 applemusiclrc MeshGradientRenderer)
+          Positioned.fill(
             child: RepaintBoundary(
-              child: Container(
-                width: 420,
-                height: 420,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      colors.accent.withValues(alpha: 0.22),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
+              child: AlbumMeshBackground(
+                coverUrl: song.coverUrl,
+                child: const SizedBox.expand(),
               ),
             ),
           ),
@@ -325,20 +315,39 @@ class _ClassicLayout extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  // 歌手名(可点击)
-                  GestureDetector(
-                    onTap: song.artists.isNotEmpty
-                        ? () => onArtistTap?.call(song.artists.first.id)
-                        : null,
-                    child: Text(
-                      song.artistNames,
+                  // 歌手名(每个歌手可点击)
+                  Text.rich(
+                    TextSpan(
                       style: TextStyle(
                         fontSize: 14,
                         color: colors.accent,
-                        decoration: TextDecoration.underline,
-                        decorationColor:
-                            colors.accent.withValues(alpha: 0.5),
                       ),
+                      children: [
+                        for (var i = 0; i < song.artists.length; i++) ...[
+                          if (i > 0) const TextSpan(text: ' / '),
+                          if (onArtistTap != null)
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.baseline,
+                              baseline: TextBaseline.alphabetic,
+                              child: GestureDetector(
+                                onTap: () =>
+                                    onArtistTap?.call(song.artists[i].id),
+                                child: Text(
+                                  song.artists[i].name,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: colors.accent,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: colors.accent
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            TextSpan(text: song.artists[i].name),
+                        ],
+                      ],
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -435,11 +444,17 @@ class _ProgressControls extends StatelessWidget {
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                 ),
-                child: Slider(
-                  value: player.progress,
-                  activeColor: colors.accent,
-                  inactiveColor: colors.divider,
-                  onChanged: player.seek,
+                child: TweenAnimationBuilder<double>(
+                  // 进度插值:把 100ms 的轮询跳变平滑为连续滑动。
+                  tween: Tween(begin: player.progress, end: player.progress),
+                  duration: const Duration(milliseconds: 120),
+                  curve: Curves.linear,
+                  builder: (context, value, _) => Slider(
+                    value: value.clamp(0.0, 1.0),
+                    activeColor: colors.accent,
+                    inactiveColor: colors.divider,
+                    onChanged: player.seek,
+                  ),
                 ),
               ),
               Padding(
@@ -633,19 +648,38 @@ class _LineLyricsLayout extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      GestureDetector(
-                        onTap: song.artists.isNotEmpty
-                            ? () => onArtistTap?.call(song.artists.first.id)
-                            : null,
-                        child: Text(
-                          song.artistNames,
+                      Text.rich(
+                        TextSpan(
                           style: TextStyle(
                             fontSize: 13,
                             color: colors.accent,
-                            decoration: TextDecoration.underline,
-                            decorationColor:
-                                colors.accent.withValues(alpha: 0.5),
                           ),
+                          children: [
+                            for (var i = 0; i < song.artists.length; i++) ...[
+                              if (i > 0) const TextSpan(text: ' / '),
+                              if (onArtistTap != null)
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.baseline,
+                                  baseline: TextBaseline.alphabetic,
+                                  child: GestureDetector(
+                                    onTap: () => onArtistTap
+                                        ?.call(song.artists[i].id),
+                                    child: Text(
+                                      song.artists[i].name,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: colors.accent,
+                                        decoration: TextDecoration.underline,
+                                        decorationColor: colors.accent
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                TextSpan(text: song.artists[i].name),
+                            ],
+                          ],
                         ),
                       ),
                     ],
@@ -788,6 +822,7 @@ class _LineLyricText extends StatelessWidget {
         final text =
             idx >= 0 && idx < lyrics.length ? lyrics[idx].text : '';
         final translated = translatedLyrics.isNotEmpty &&
+                idx >= 0 &&
                 idx < translatedLyrics.length
             ? translatedLyrics[idx].text
             : '';
@@ -861,11 +896,17 @@ class _LineProgress extends StatelessWidget {
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                 ),
-                child: Slider(
-                  value: player.progress,
-                  activeColor: colors.accent,
-                  inactiveColor: colors.divider,
-                  onChanged: player.seek,
+                child: TweenAnimationBuilder<double>(
+                  // 进度插值:把 100ms 的轮询跳变平滑为连续滑动。
+                  tween: Tween(begin: player.progress, end: player.progress),
+                  duration: const Duration(milliseconds: 120),
+                  curve: Curves.linear,
+                  builder: (context, value, _) => Slider(
+                    value: value.clamp(0.0, 1.0),
+                    activeColor: colors.accent,
+                    inactiveColor: colors.divider,
+                    onChanged: player.seek,
+                  ),
                 ),
               ),
               Padding(
@@ -1162,8 +1203,8 @@ class _AutoScrollLyricsState extends State<_AutoScrollLyrics> {
       final target = item * _rowHeight - 120;
       _controller.animateTo(
         target.clamp(0, _controller.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
+        duration: AppMotion.long,
+        curve: AppMotion.curve,
       );
     }
   }

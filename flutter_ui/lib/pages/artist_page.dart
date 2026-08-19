@@ -46,6 +46,12 @@ class _ArtistPageState extends State<ArtistPage> {
     _load();
   }
 
+  /// 从艺术家字段读取 int(兼容 num)。
+  int _artistInt(String key) {
+    final v = _artist?[key];
+    return v is num ? v.toInt() : 0;
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -153,15 +159,67 @@ class _ArtistPageState extends State<ArtistPage> {
                                         color: colors.textPrimary,
                                       ),
                                     ),
+                                    // 别名(如 Jay Chou / 周董)
+                                    if ((_artist?['alias'] as List?)?.isNotEmpty ??
+                                        false) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        (_artist?['alias'] as List)
+                                            .map((e) => e.toString())
+                                            .join(' / '),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: colors.textTertiary,
+                                        ),
+                                      ),
+                                    ],
                                     const SizedBox(height: 4),
                                     Text(
                                       '歌曲 ${_artist?['music_count'] ?? 0} · '
-                                      '专辑 ${_artist?['album_count'] ?? 0}',
+                                      '专辑 ${_artist?['album_count'] ?? 0}'
+                                      '${_artistInt('mv_count') > 0 ? ' · MV ${_artistInt('mv_count')}' : ''}'
+                                      '${_artistInt('fans_count') > 0 ? ' · 粉丝 ${_artistInt('fans_count')}' : ''}',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: colors.textSecondary,
                                       ),
                                     ),
+                                    // 标签(音乐人/独立音乐人等)
+                                    if ((_artist?['identify_tags'] as List?)
+                                            ?.isNotEmpty ??
+                                        false) ...[
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        children: [
+                                          for (final tag
+                                              in (_artist?['identify_tags']
+                                                  as List)
+                                                  .cast<Object?>())
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .symmetric(
+                                                horizontal: 8,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: colors.accent
+                                                    .withValues(alpha: 0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                tag.toString(),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: colors.accent,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
                                     if ((_artist?['brief'] ?? '')
                                         .toString()
                                         .isNotEmpty) ...[

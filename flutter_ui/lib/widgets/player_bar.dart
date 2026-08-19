@@ -79,17 +79,22 @@ class _PlayerBarState extends State<PlayerBar> {
         ),
         child: Stack(
           children: [
-            // 顶部细进度条
+            // 顶部细进度条(插值平滑)
             Positioned(
               top: 0,
               left: 0,
               right: 0,
               child: SizedBox(
                 height: 3,
-                child: LinearProgressIndicator(
-                  value: player.progress,
-                  backgroundColor: Colors.transparent,
-                  color: colors.accent,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: player.progress, end: player.progress),
+                  duration: const Duration(milliseconds: 120),
+                  curve: Curves.linear,
+                  builder: (context, value, _) => LinearProgressIndicator(
+                    value: value.clamp(0.0, 1.0),
+                    backgroundColor: Colors.transparent,
+                    color: colors.accent,
+                  ),
                 ),
               ),
             ),
@@ -145,10 +150,21 @@ class _PlayerBarState extends State<PlayerBar> {
                 ),
                 // 中间控制区(固定宽度,视觉居中)
                 SizedBox(
-                  width: 280,
+                  width: 300,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // 红心(与播放页对齐)
+                      IconBtn(
+                        icon: player.isLiked(song.id)
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        size: 20,
+                        tooltip: player.isLiked(song.id) ? '取消收藏' : '收藏',
+                        color: colors.danger,
+                        onTap: () => player.toggleLike(song),
+                      ),
+                      const SizedBox(width: 2),
                       IconBtn(
                         icon: Icons.skip_previous_rounded,
                         size: 22,
@@ -163,6 +179,32 @@ class _PlayerBarState extends State<PlayerBar> {
                         size: 22,
                         tooltip: '下一首',
                         onTap: player.next,
+                      ),
+                      const SizedBox(width: 2),
+                      // 音质切换(与播放页对齐)
+                      PopupMenuButton<int>(
+                        tooltip: '音质',
+                        onSelected: player.setQuality,
+                        color: colors.card,
+                        icon: Icon(
+                          Icons.high_quality_rounded,
+                          size: 18,
+                          color: colors.textSecondary,
+                        ),
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 128000,
+                            child: Text('标准音质'),
+                          ),
+                          PopupMenuItem(
+                            value: 320000,
+                            child: Text('高品音质'),
+                          ),
+                          PopupMenuItem(
+                            value: 3200000,
+                            child: Text('无损音质'),
+                          ),
+                        ],
                       ),
                     ],
                   ),

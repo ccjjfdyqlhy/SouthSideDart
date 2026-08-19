@@ -112,6 +112,10 @@ class PlayerState extends ChangeNotifier {
         event == 'PLAYLIST_CHANGED') {
       _refreshFromBackend();
     }
+    // 切歌后红心状态可能已变化(如播放红心歌单/红心操作),及时刷新。
+    if (event == 'SONG_CHANGED' || event == 'LIKE_CHANGED') {
+      loadLikedSongs();
+    }
   }
 
   /// 从内核拉取完整播放状态并同步到本地(仅在变化时通知)。
@@ -282,6 +286,12 @@ class PlayerState extends ChangeNotifier {
     shuffle = method == 'Shuffle';
     notifyListeners();
     _sync('set_config', {'key': 'play_method', 'value': method});
+  }
+
+  /// 设置播放音质(128000 标准 / 320000 高品 / 3200000 无损)。
+  void setQuality(int bitrate) {
+    if (bitrate <= 0) return;
+    _sync('set_config', {'key': 'play_quality', 'value': bitrate});
   }
 
   /// 启动时从内核读取播放模式。
