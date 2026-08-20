@@ -213,29 +213,31 @@ Settings use a compact default view. Enable **Advanced Settings** to expose deta
 ### Prepare the Workspace
 
 ```bash
-git clone https://github.com/Adreno5/SouthsideMusic.git
-cd SouthsideMusic
-python setup_workspace.py
+git clone https://github.com/ccjjfdyqlhy/SouthSideDart.git
+cd SouthSideDart
+uv sync          # install backend dependencies from pyproject.toml / uv.lock
+cd flutter_ui && flutter pub get
 ```
-
-The setup script synchronizes the `uv` environment, prepares the Python 3.14.2 embedded runtime, installs a free-threaded `3.14t` worker environment, creates the isolated Nuitka build environment, validates the runtime, and can install Inno Setup.
 
 ### Run from Source
 
+The Flutter frontend spawns the headless Python backend itself. From the repo root:
+
 ```bash
-uv run src/main.py
+cd flutter_ui
+flutter run
 ```
 
-If the project environment is already active:
+Or run the backend alone over stdio / TCP RPC:
 
 ```bash
-python src/main.py
+uv run python src/backend/standalone.py --no-tcp
+uv run python src/backend/standalone.py --port 15490
 ```
 
 ### Validate
 
 ```bash
-python -m py_compile src/main.py
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/
@@ -243,22 +245,6 @@ python scripts/check_backend_no_qt.py   # verify the core backend imports withou
 ```
 
 There is no formal automated test suite yet. `src/test.py` is a manual API exploration script, not a pytest suite.
-
-### Build
-
-```bat
-build.bat
-```
-
-The build compiles `launcher.py` with Nuitka, assembles the embedded runtimes and application resources, then invokes Inno Setup when `ISCC.exe` is available.
-
-```text
-build.result\
-├── raw\          Runnable portable directory
-└── installer\    Versioned installer, when Inno Setup is available
-```
-
-If Inno Setup is unavailable, the portable build remains in `build.result\raw\`.
 
 ### Headless Backend
 

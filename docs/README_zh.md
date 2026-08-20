@@ -213,29 +213,31 @@ Southside Music 会在本机 `15489` 端口启动 WebSocket 服务。连接会�
 ### 准备工作区
 
 ```bash
-git clone https://github.com/Adreno5/SouthsideMusic.git
-cd SouthsideMusic
-python setup_workspace.py
+git clone https://github.com/ccjjfdyqlhy/SouthSideDart.git
+cd SouthSideDart
+uv sync          # 根据 pyproject.toml / uv.lock 安装后端依赖
+cd flutter_ui && flutter pub get
 ```
-
-搭建脚本会同步 `uv` 环境，准备 Python 3.14.2 嵌入式运行时和 free-threaded `3.14t` worker 环境，创建独立的 Nuitka 构建环境，验证运行时，并按需安装 Inno Setup。
 
 ### 从源码运行
 
+Flutter 前端会自动拉起无头 Python 后端。在仓库根目录下：
+
 ```bash
-uv run src/main.py
+cd flutter_ui
+flutter run
 ```
 
-如果已经激活项目环境，也可以运行：
+也可以单独通过 stdio 或 TCP RPC 运行后端：
 
 ```bash
-python src/main.py
+uv run python src/backend/standalone.py --no-tcp
+uv run python src/backend/standalone.py --port 15490
 ```
 
 ### 验证
 
 ```bash
-python -m py_compile src/main.py
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/
@@ -243,22 +245,6 @@ python scripts/check_backend_no_qt.py   # 验证核心后端在无 PySide6 环�
 ```
 
 项目目前没有正式的自动化测试套件。`src/test.py` 是手动 API 探索脚本，不是 pytest 测试。
-
-### 构建
-
-```bat
-build.bat
-```
-
-构建脚本会使用 Nuitka 编译 `launcher.py`，组装嵌入式运行时和应用资源，并在存在 `ISCC.exe` 时调用 Inno Setup。
-
-```text
-build.result\
-├── raw\          可直接运行的便携目录
-└── installer\    已安装 Inno Setup 时生成带版本号的安装器
-```
-
-如果没有 Inno Setup，便携构建仍会保留在 `build.result\raw\`。
 
 ### 无界面核心后端（Headless Backend）
 

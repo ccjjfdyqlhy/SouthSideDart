@@ -8,16 +8,10 @@ openai==2.43.0
 pillow==12.2.0
 pycryptodome==3.23.0
 pydub==0.25.1
-pyside6==6.10.2
-pyside6-addons==6.10.2
-pyside6-essentials==6.10.2
-pyside6-fluent-widgets==1.11.1
-pysidesix-frameless-window==0.8.0
 pywin32==312
 qrcode==8.2
 requests==2.32.5
 scipy==1.17.0
-shiboken6==6.10.2
 sounddevice==0.5.5
 toml==0.10.2
 tornado==6.5.7

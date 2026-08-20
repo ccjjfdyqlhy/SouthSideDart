@@ -2,12 +2,14 @@
 
 ## Project Overview
 
-SouthsideMusic is a Windows-only PySide6 desktop client for NetEase CloudMusic:
-streaming playback, word-by-word lyrics, loudness normalization, desktop lyrics,
-local favorites, song export, and auto-update support.
+SouthsideMusic is a music player with a Flutter/Dart frontend
+(`flutter_ui/`) and a Qt-free Python core backend. The Python side provides
+streaming playback, word-by-word lyrics, loudness normalization, a local music
+bridge (WebSocket `ws://localhost:15489/`), favorites, song export, and a
+JSON-RPC server (`src/backend/standalone.py`) that the Flutter UI talks to over
+stdin/stdout or TCP `127.0.0.1:15490`.
 
-The app is packaged with Nuitka and distributed through Inno Setup. Runtime caches
-live under `data/`; persistent user settings live in `config.json`.
+Runtime caches live under `data/`; persistent user settings live in `config.json`.
 
 Primary docs are `docs/README.md` and `docs/README_zh.md`. No Cursor rules
 (`.cursor/rules/` or `.cursorrules`) and no Copilot instructions
@@ -15,32 +17,30 @@ Primary docs are `docs/README.md` and `docs/README_zh.md`. No Cursor rules
 
 ## Environment
 
-- Target OS: Windows.
+- Target OS: Windows (backend also runs headless on any Python 3.13+ host).
 - Project metadata in `pyproject.toml` says Python `>=3.13`; prefer that over
   older docs that mention Python 3.12+ / 3.12.7.
 - `uv.lock` is present; prefer `uv run ...` when available.
-- Initial workspace setup is automated by `python setup_workspace.py`.
-- Build output goes to `build.result\raw\` and optionally `build.result\installer\`.
+- The standalone backend has no PySide6/Qt dependency; validate with
+  `python scripts/check_backend_no_qt.py`.
 
 ## Commands
 
 ```bash
-python setup_workspace.py                 # bootstrap dependencies/tooling
-uv run src/main.py                        # run from source (preferred)
-python src/main.py                        # run if environment is already active
-build.bat                                 # full Windows build/package flow
-python scripts/create_icon.py             # regenerate icons/app.ico
+uv run python src/backend/standalone.py --no-tcp   # run headless backend
+python scripts/check_backend_no_qt.py              # verify no Qt imports
+cd flutter_ui && flutter run                       # run the Flutter frontend
 
 uv run ruff check .                       # lint all files
 uv run ruff format --check .              # check formatting
 uv run ruff format .                      # format files
 uv run mypy src/                          # type check source tree
-python -m py_compile src/main.py          # quick syntax/import smoke check
+python -m py_compile src/backend/standalone.py  # quick syntax/import smoke check
 ```
 
-`build.bat` deletes old outputs, runs Nuitka on `launcher.py`, copies embedded
-Python/resources/source, regenerates the icon, then runs Inno Setup if `ISCC.exe`
-is installed. Without Inno Setup, raw portable files remain in `build.result\raw\`.
+The Flutter app locates the repo root by searching upward for
+`src/backend/standalone.py`, then spawns it with `.venv-backend/bin/python`
+(or `python3`) using `--no-tcp` and talks JSON-RPC over the child's stdio.
 
 ## Tests
 
@@ -61,13 +61,13 @@ For small non-test changes, prefer narrow validation first: `python -m py_compil
 ## Project Structure
 
 ```text
+flutter_ui/        # Flutter/Dart frontend (current UI)
 src/
-  main.py          # app entry, QApplication setup, logging, excepthook
-  imports.py       # centralized imports/re-exports for Qt, typing, events
-  core/            # audio, config, models, lyrics, theme, icons, backends
-  services/        # event bus and update checks
-  views/           # PySide6 UI pages, cards, windows, widgets
+  backend/         # headless core backend: standalone.py, service.py, shim, signals
+  core/            # audio, config, models, lyrics, theme, backends, ws_server
+  services/events/ # event bus
   pyncm/           # forked NetEase CloudMusic API client
+scripts/           # check_backend_no_qt.py, create_icon.py, etc.
 docs/              # English/Chinese user documentation
 data/              # runtime caches for music, images, lyrics, temp data
 icons/, images/    # packaged UI resources
@@ -75,23 +75,14 @@ fonts/             # bundled HarmonyOS Sans SC font assets
 config.json        # hand-editable persisted user config
 ```
 
-Reference style files: `src/views/search_page.py`, `src/views/error_popup.py`.
-
 ## Import Style
 
 - Use `from __future__ import annotations` when the file already follows it.
-- Import Qt/PySide6 classes from `imports`, not directly from PySide6:
-
-```python
-from imports import QTimer, QVBoxLayout, QWidget, Qt, Signal, event_bus
-```
-
-- `src/imports.py` re-exports PySide6 classes, typing helpers, qfluentwidgets,
-  and event bus members.
+- The backend must stay Qt-free. Core modules import Qt widgets only under
+  `try/except ImportError` with fallbacks from `backend.shim` / `backend.signals`.
 - Direct third-party imports are fine for non-Qt libraries (`numpy`, `requests`).
 - Use `if TYPE_CHECKING:` for type-only imports that could create circular imports.
 - Keep imports grouped as standard library, third-party, then project imports.
-- qfluentwidgets may be imported directly when existing code does so.
 
 ## Formatting
 
@@ -127,38 +118,36 @@ from imports import QTimer, QVBoxLayout, QWidget, Qt, Signal, event_bus
 ## Error Handling And Logging
 
 - Logging modules should define `_logger = logging.getLogger(__name__)`.
-- Do not call `logging.basicConfig()` outside `src/main.py`.
 - Log exceptions with `_logger.exception(e)` when a traceback matters.
-- Global unhandled exceptions route through `sys.excepthook` to `ErrorPopupWindow`.
 - Config I/O should fall back gracefully; corrupt config should not crash launch.
 - Cache/file operations should handle `FileNotFoundError` and `PermissionError`
   when user files or generated cache paths are involved.
-- `hijackStreams()` in `main.py` redirects stdout/stderr into logging/UI output.
 
-## Qt And UI Conventions
+## Backend Conventions
 
-- UI classes should subclass `QWidget` or a concrete widget/window, not `QObject`.
-- Build layouts in `__init__`, then connect signals after widget/layout setup.
-- Declare Qt signals as class attributes, e.g. `fetchedSongs = Signal(list)`.
-- Check `shiboken6.isValid()` before accessing widgets Qt may have deleted.
-- Use `@Property(type)` for Qt properties used by animations or style bindings.
-- Preserve existing visual language; do not redesign UI unless asked.
+- Keep `src/backend/` and `src/core/` importable without PySide6/Qt; use
+  `backend.shim` / `backend.signals` fallbacks instead of hard Qt imports.
+- Backend signal declarations follow Qt-like shape (`Signal(...)`) via
+  `backend.signals` when Qt is absent.
+- The Flutter UI is the only UI; Python code should not assume a Qt window exists.
 
 ## Architecture
 
-- `AppContext` is a simple dependency bag passed as `__init__(self, ctx)`.
+- `CoreContext` (`src/backend/core_context.py`) is the headless app state bag;
+  `standalone.py` serves it over JSON-RPC. `AppContext` (Qt-flavored, in
+  `core/app_context.py`) still exists for legacy paths but is not the entry point.
 - Backend abstraction is `MusicServiceBackend` -> `NeteaseCloudMusicBackend`.
 - Use the event bus in `services/events/` for cross-component communication:
   `event_bus.subscribe(EVENT, listener)` and `event_bus.emit(EVENT, *args)`.
-- Event constants are re-exported through `imports`.
-- Views build their own layouts; cards like `song_card` are composable widgets.
+- Event constants live in `services/events/events.py`.
 - Keep ownership and signal wiring obvious; prefer direct `if/else` over factories.
 
 ## Background Work
 
 - Use `asyncTask(fn, args, mwindow)` for simple fire-and-forget work.
 - Use `asyncDownload(mwindow).download(url, path)` for downloads with progress.
-- Use `QThread` + `moveToThread()` for long-lived structured workers.
+- Use `QThread` + `moveToThread()` for long-lived structured workers (Qt present)
+  or `backend.scheduler` thread tasks (Qt-free).
 - Schedule UI updates on the main thread with `self._mwindow.addScheduledTask(...)`.
 - Lazy cards usually set `self.load = False`, poll visibility, then load once.
 
@@ -220,8 +209,8 @@ separate owner boundary and build flow:
   `clientToken`/one-use `ticket` authentication.
 - For local music protocol work, read this file and
   `D:\downloads\Southside-Legacy\AGENTS.md`, then compare the exact Python JSON
-  fields with the Java parser. Start with `src/core/ws_server.py`, `src/main.py`,
-  `src/views/playing_controller.py`, and `src/views/playing_page.py` on Python;
+  fields with the Java parser. Start with `src/core/ws_server.py`,
+  `src/backend/standalone.py`, and `src/core/playing_manager.py` on Python;
   start with `SouthsideMusicModule.java` and
   `SouthsideMusicWebsocketClient.java` on Java.
 - For IRC/auth work, treat `SouthsideLegacyIRC` as the contract producer and
