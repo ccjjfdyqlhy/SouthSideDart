@@ -108,6 +108,12 @@ class _CommentsPageState extends State<CommentsPage> {
     }
   }
 
+  Future<void> _refresh() async {
+    _page = 1;
+    _comments = [];
+    await _loadMore();
+  }
+
   Future<void> _post() async {
     final content = _input.text.trim();
     if (content.isEmpty || _posting) return;
@@ -123,6 +129,7 @@ class _CommentsPageState extends State<CommentsPage> {
         const SnackBar(content: Text('评论已发表')),
       );
       setState(() => _posting = false);
+      await _refresh();
     } catch (e) {
       if (!mounted) return;
       setState(() => _posting = false);

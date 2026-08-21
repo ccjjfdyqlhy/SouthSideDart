@@ -52,6 +52,7 @@ class BackendStore extends ChangeNotifier {
   List<Song> dailySongs = [];
   List<Folder> cloudFolders = [];
   List<Folder> localFolders = [];
+  List<Folder> get allFolders => [...localFolders, ...cloudFolders];
   List<Song> folderSongs = [];
   List<LyricLine> currentLyrics = [];
   List<LyricLine> currentTranslatedLyrics = [];
@@ -95,6 +96,22 @@ class BackendStore extends ChangeNotifier {
           .whereType<Map<String, dynamic>>()
           .map(folderFromJson)
           .toList();
+      try {
+        final favsRes = await client.call('list_favorites');
+        final favsData = (favsRes['result'] as Map<String, dynamic>?) ?? {};
+        localFolders = ((favsData['folders'] as List?) ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map((j) => Folder(
+                  id: int.tryParse((j['id'] ?? '').toString()) ?? 0,
+                  name: (j['name'] ?? '').toString(),
+                  songCount: (j['count'] as num?)?.toInt() ?? 0,
+                  coverUrl: null,
+                  type: FolderType.local,
+                ))
+            .toList();
+      } catch (_) {
+        localFolders = const [];
+      }
     } catch (_) {
       // 保持空,回退 mock
     } finally {

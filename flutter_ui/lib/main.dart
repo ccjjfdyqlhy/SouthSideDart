@@ -511,7 +511,7 @@ class _HomeShellState extends State<HomeShell> {
                       current: _nav,
                       settingsSelected: _showSettings,
                       userPanelActive: _panelUserId != null,
-                      folders: store?.cloudFolders ?? const [],
+                      folders: store?.allFolders ?? const [],
                       selectedFolderId: _selectedFolder?.id,
                       account: _account,
                       onNavigate: _navigate,
@@ -673,6 +673,8 @@ class _HomeShellState extends State<HomeShell> {
         artistId: _panelArtistId!,
         onBack: _closePanel,
         onSongTap: _player.playSong,
+        onInsert: _player.queueSong,
+        onFavorite: _player.likeSong,
         onAlbumTap: (id) => setState(() {
           _panelAlbumId = id;
           _panelArtistId = null;
@@ -688,6 +690,8 @@ class _HomeShellState extends State<HomeShell> {
           _clearPinnedTitle();
         },
         onSongTap: _player.playSong,
+        onInsert: _player.queueSong,
+        onFavorite: _player.likeSong,
       );
     }
     if (_panelUserId != null) {

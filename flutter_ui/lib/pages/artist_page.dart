@@ -17,6 +17,12 @@ class ArtistPage extends StatefulWidget {
   /// 播放热门歌曲。
   final ValueChanged<Song>? onSongTap;
 
+  /// 插入到播放队列。
+  final ValueChanged<Song>? onInsert;
+
+  /// 收藏歌曲。
+  final ValueChanged<Song>? onFavorite;
+
   /// 打开专辑(返回专辑 id)。
   final ValueChanged<int>? onAlbumTap;
 
@@ -26,6 +32,8 @@ class ArtistPage extends StatefulWidget {
     required this.artistId,
     required this.onBack,
     this.onSongTap,
+    this.onInsert,
+    this.onFavorite,
     this.onAlbumTap,
   });
 
@@ -246,8 +254,8 @@ class _ArtistPageState extends State<ArtistPage> {
                             (song) => SongCard(
                               song: song,
                               onPlay: () => widget.onSongTap?.call(song),
-                              onInsert: () {},
-                              onFavorite: () {},
+                              onInsert: () => widget.onInsert?.call(song),
+                              onFavorite: () => widget.onFavorite?.call(song),
                             ),
                           ),
                           if (_albums.isNotEmpty) ...[

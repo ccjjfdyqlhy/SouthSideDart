@@ -14,6 +14,8 @@ class AlbumPage extends StatefulWidget {
   final int albumId;
   final VoidCallback onBack;
   final ValueChanged<Song>? onSongTap;
+  final ValueChanged<Song>? onInsert;
+  final ValueChanged<Song>? onFavorite;
 
   const AlbumPage({
     super.key,
@@ -21,6 +23,8 @@ class AlbumPage extends StatefulWidget {
     required this.albumId,
     required this.onBack,
     this.onSongTap,
+    this.onInsert,
+    this.onFavorite,
   });
 
   @override
@@ -168,8 +172,8 @@ class _AlbumPageState extends State<AlbumPage> {
                             (song) => SongCard(
                               song: song,
                               onPlay: () => widget.onSongTap?.call(song),
-                              onInsert: () {},
-                              onFavorite: () {},
+                              onInsert: () => widget.onInsert?.call(song),
+                              onFavorite: () => widget.onFavorite?.call(song),
                             ),
                           ),
                           const SizedBox(height: 16),

@@ -112,7 +112,9 @@ class _PlayingPageState extends State<PlayingPage> {
       });
       final url = ((r['result'] as Map<String, dynamic>?) ?? {})['url'];
       if (url == null) throw StateError('no url');
-      final home = Platform.environment['HOME'] ?? '.';
+      final home = Platform.isWindows
+          ? (Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '.')
+          : (Platform.environment['HOME'] ?? '.');
       final dir = Directory('$home/Downloads');
       if (!dir.existsSync()) dir.createSync(recursive: true);
       final safe = song.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
